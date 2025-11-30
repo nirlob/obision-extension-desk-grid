@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.obision-extension-desk" path="/org/gnome/shell/extensions/obision-extension-desk/">
+    
+    <!-- Icon Settings -->
+    <key name="icon-size" type="s">
+      <default>"medium"</default>
+      <summary>Icon Size</summary>
+      <description>Size of desktop icons: small (48px), medium (64px), large (96px), xlarge (128px)</description>
+    </key>
+
+    <key name="show-hidden" type="b">
+      <default>false</default>
+      <summary>Show Hidden Files</summary>
+      <description>Display hidden files and folders (starting with a dot)</description>
+    </key>
+
+    <!-- Grid Settings -->
+    <key name="grid-spacing" type="i">
+      <default>12</default>
+      <range min="4" max="48"/>
+      <summary>Grid Spacing</summary>
+      <description>Space between icons in pixels</description>
+    </key>
+
+    <key name="sort-by" type="s">
+      <default>"name"</default>
+      <summary>Sort By</summary>
+      <description>How to sort icons: name, modified, size, type</description>
+    </key>
+
+    <!-- Behavior Settings -->
+    <key name="single-click" type="b">
+      <default>false</default>
+      <summary>Single Click to Open</summary>
+      <description>Open files with a single click instead of double click</description>
+    </key>
+
+    <key name="show-trash" type="b">
+      <default>true</default>
+      <summary>Show Trash Icon</summary>
+      <description>Display the trash can on the desktop</description>
+    </key>
+
+    <key name="show-home" type="b">
+      <default>true</default>
+      <summary>Show Home Icon</summary>
+      <description>Display home folder icon on the desktop</description>
+    </key>
+
+    <!-- Per-icon custom sizes (JSON map: filename -> size) -->
+    <key name="custom-icon-sizes" type="s">
+      <default>"{}"</default>
+      <summary>Custom Icon Sizes</summary>
+      <description>JSON map of filenames to their custom sizes (small, medium, large, xlarge)</description>
+    </key>
+
+    <!-- Icon positions (JSON map: filename -> {x, y}) -->
+    <key name="icon-positions" type="s">
+      <default>"{}"</default>
+      <summary>Icon Positions</summary>
+      <description>JSON map of filenames to their custom positions</description>
+    </key>
+
+  </schema>
+</schemalist>

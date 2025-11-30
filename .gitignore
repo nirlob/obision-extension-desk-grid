@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+*.zip
+schemas/gschemas.compiled
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Cache
+.eslintcache
+.prettiercache

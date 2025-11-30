@@ -1,0 +1,248 @@
+/* Obision Desk - Desktop Icons Extension Styles */
+
+/* Desktop Icon Container */
+.desktop-icon {
+    padding: 8px;
+    border-radius: 8px;
+    transition-duration: 150ms;
+    min-width: 80px;
+    max-width: 160px;
+}
+
+.desktop-icon:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.desktop-icon:selected {
+    background-color: rgba(53, 132, 228, 0.3);
+    border: 2px solid rgba(53, 132, 228, 0.8);
+}
+
+.desktop-icon:focus {
+    background-color: rgba(53, 132, 228, 0.2);
+}
+
+.desktop-icon.dragging {
+    opacity: 0.5;
+}
+
+/* Icon Image Container */
+.desktop-icon-container {
+    padding: 4px;
+    border-radius: 6px;
+}
+
+.desktop-icon:hover .desktop-icon-container {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Icon Image */
+.desktop-icon-image {
+    margin: 4px;
+}
+
+/* Icon Label */
+.desktop-icon-label {
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+    margin-top: 6px;
+    padding: 2px 4px;
+    border-radius: 4px;
+    /* Text shadow for visibility on various backgrounds */
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8),
+        0 0 4px rgba(0, 0, 0, 0.6);
+}
+
+.desktop-icon:selected .desktop-icon-label {
+    background-color: rgba(53, 132, 228, 0.6);
+    text-shadow: none;
+}
+
+/* Size-specific styles */
+
+/* Small icons (48px) */
+.desktop-icon-small {
+    min-width: 64px;
+    max-width: 100px;
+}
+
+.desktop-icon-small .desktop-icon-label {
+    font-size: 10px;
+}
+
+/* Medium icons (64px) - default */
+.desktop-icon-medium {
+    min-width: 80px;
+    max-width: 120px;
+}
+
+/* Large icons (96px) */
+.desktop-icon-large {
+    min-width: 112px;
+    max-width: 150px;
+}
+
+.desktop-icon-large .desktop-icon-label {
+    font-size: 13px;
+}
+
+/* Extra large icons (128px) */
+.desktop-icon-xlarge {
+    min-width: 144px;
+    max-width: 180px;
+}
+
+.desktop-icon-xlarge .desktop-icon-label {
+    font-size: 14px;
+}
+
+/* Special Icons - Trash */
+.desktop-icon-trash {
+    /* Inherits from .desktop-icon */
+}
+
+.desktop-icon-trash:empty .desktop-icon-image {
+    /* Could use different icon when empty */
+}
+
+/* Special Icons - Home */
+.desktop-icon-home {
+    /* Inherits from .desktop-icon */
+}
+
+/* Light theme support */
+.desktop-icon-light .desktop-icon-label {
+    color: rgba(0, 0, 0, 0.9);
+    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8),
+        0 0 4px rgba(255, 255, 255, 0.6);
+}
+
+.desktop-icon-light:selected .desktop-icon-label {
+    color: rgba(255, 255, 255, 0.95);
+    text-shadow: none;
+}
+
+/* Accent color variants */
+
+/* Blue accent (default) */
+.desktop-icon.accent-blue:selected {
+    background-color: rgba(53, 132, 228, 0.3);
+    border-color: rgba(53, 132, 228, 0.8);
+}
+
+.desktop-icon.accent-blue:selected .desktop-icon-label {
+    background-color: rgba(53, 132, 228, 0.6);
+}
+
+/* Teal accent */
+.desktop-icon.accent-teal:selected {
+    background-color: rgba(33, 150, 141, 0.3);
+    border-color: rgba(33, 150, 141, 0.8);
+}
+
+.desktop-icon.accent-teal:selected .desktop-icon-label {
+    background-color: rgba(33, 150, 141, 0.6);
+}
+
+/* Green accent */
+.desktop-icon.accent-green:selected {
+    background-color: rgba(46, 160, 67, 0.3);
+    border-color: rgba(46, 160, 67, 0.8);
+}
+
+.desktop-icon.accent-green:selected .desktop-icon-label {
+    background-color: rgba(46, 160, 67, 0.6);
+}
+
+/* Yellow accent */
+.desktop-icon.accent-yellow:selected {
+    background-color: rgba(227, 170, 0, 0.3);
+    border-color: rgba(227, 170, 0, 0.8);
+}
+
+.desktop-icon.accent-yellow:selected .desktop-icon-label {
+    background-color: rgba(227, 170, 0, 0.6);
+}
+
+/* Orange accent */
+.desktop-icon.accent-orange:selected {
+    background-color: rgba(230, 126, 34, 0.3);
+    border-color: rgba(230, 126, 34, 0.8);
+}
+
+.desktop-icon.accent-orange:selected .desktop-icon-label {
+    background-color: rgba(230, 126, 34, 0.6);
+}
+
+/* Red accent */
+.desktop-icon.accent-red:selected {
+    background-color: rgba(224, 81, 81, 0.3);
+    border-color: rgba(224, 81, 81, 0.8);
+}
+
+.desktop-icon.accent-red:selected .desktop-icon-label {
+    background-color: rgba(224, 81, 81, 0.6);
+}
+
+/* Pink accent */
+.desktop-icon.accent-pink:selected {
+    background-color: rgba(213, 97, 166, 0.3);
+    border-color: rgba(213, 97, 166, 0.8);
+}
+
+.desktop-icon.accent-pink:selected .desktop-icon-label {
+    background-color: rgba(213, 97, 166, 0.6);
+}
+
+/* Purple accent */
+.desktop-icon.accent-purple:selected {
+    background-color: rgba(145, 71, 255, 0.3);
+    border-color: rgba(145, 71, 255, 0.8);
+}
+
+.desktop-icon.accent-purple:selected .desktop-icon-label {
+    background-color: rgba(145, 71, 255, 0.6);
+}
+
+/* Slate accent */
+.desktop-icon.accent-slate:selected {
+    background-color: rgba(98, 111, 128, 0.3);
+    border-color: rgba(98, 111, 128, 0.8);
+}
+
+.desktop-icon.accent-slate:selected .desktop-icon-label {
+    background-color: rgba(98, 111, 128, 0.6);
+}
+
+/* Rubber band selection */
+.desktop-rubberband {
+    background-color: rgba(53, 132, 228, 0.2);
+    border: 1px solid rgba(53, 132, 228, 0.6);
+    border-radius: 4px;
+}
+
+/* Context menu */
+.desktop-context-menu {
+    background-color: rgba(36, 36, 36, 0.95);
+    border-radius: 12px;
+    padding: 6px 0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.desktop-context-menu-item {
+    padding: 8px 16px;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 13px;
+}
+
+.desktop-context-menu-item:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.desktop-context-menu-separator {
+    height: 1px;
+    margin: 4px 12px;
+    background-color: rgba(255, 255, 255, 0.1);
+}

@@ -1,0 +1,12 @@
+{
+    "name": "Obision Desk",
+    "description": "A GNOME Shell extension for desktop icons with multi-size support",
+    "uuid": "obision-extension-desk@obision.com",
+    "shell-version": [
+        "48",
+        "49"
+    ],
+    "version": 1,
+    "url": "https://github.com/nirlob/obision-extension-desk",
+    "settings-schema": "org.gnome.shell.extensions.obision-extension-desk"
+}

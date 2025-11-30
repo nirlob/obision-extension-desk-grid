@@ -1,0 +1,45 @@
+{
+    "name": "obision-extension-desk",
+    "version": "1.0.0",
+    "description": "A GNOME Shell extension for desktop icons with multi-size support",
+    "main": "extension.js",
+    "scripts": {
+        "build": "npm run compile-schemas && npm run pack",
+        "compile-schemas": "glib-compile-schemas schemas/",
+        "pack": "gnome-extensions pack --force --extra-source=schemas/ --extra-source=src/",
+        "install": "gnome-extensions install --force obision-extension-desk@obision.com.shell-extension.zip",
+        "enable": "gnome-extensions enable obision-extension-desk@obision.com",
+        "deploy": "npm run build && npm run install && echo '\n✓ Extension installed! Restart GNOME Shell:' && echo '  X11: Alt+F2 → type r → Enter' && echo '  Wayland: Log out and back in' && echo '\nThen run: npm run enable'",
+        "reload": "./reload.sh",
+        "update": "npm run build && npm run install && npm run reload",
+        "logs": "journalctl -f -o cat /usr/bin/gnome-shell",
+        "clean": "rm -f *.zip schemas/gschemas.compiled",
+        "lint": "eslint .",
+        "lint:fix": "eslint . --fix",
+        "format": "prettier --write \"**/*.{js,json,css,md}\"",
+        "format:check": "prettier --check \"**/*.{js,json,css,md}\""
+    },
+    "keywords": [
+        "gnome",
+        "gnome-shell",
+        "extension",
+        "desktop-icons",
+        "icons"
+    ],
+    "author": "Jose Francisco Gonzalez <jfgs1609@gmail.com>",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/nirlob/obision-extension-desk.git"
+    },
+    "bugs": {
+        "url": "https://github.com/nirlob/obision-extension-desk/issues"
+    },
+    "homepage": "https://github.com/nirlob/obision-extension-desk#readme",
+    "license": "GPL-3.0",
+    "devDependencies": {
+        "eslint": "^8.57.1",
+        "eslint-config-prettier": "^9.1.2",
+        "eslint-plugin-prettier": "^5.5.4",
+        "prettier": "^3.7.3"
+    }
+}
