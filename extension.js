@@ -63,6 +63,12 @@ const DesktopIcon = GObject.registerClass(
             const baseIconSize = extension._getBaseIconSize();
             const iconSize = Math.min(this._cellSize.cols, this._cellSize.rows) * baseIconSize;
 
+            // Calculate widget size to exactly fit the cells
+            const cellWidth = extension._getCellWidth();
+            const cellHeight = extension._getCellHeight();
+            const widgetWidth = cellWidth * this._cellSize.cols;
+            const widgetHeight = cellHeight * this._cellSize.rows;
+
             super._init({
                 vertical: true,
                 reactive: true,
@@ -70,6 +76,9 @@ const DesktopIcon = GObject.registerClass(
                 track_hover: true,
                 style_class: 'desktop-icon',
                 x_align: Clutter.ActorAlign.CENTER,
+                // Fix widget size to cell dimensions
+                width: widgetWidth,
+                height: widgetHeight,
             });
 
             this._fileInfo = fileInfo;
@@ -713,10 +722,7 @@ const DesktopIcon = GObject.registerClass(
 
         _showContextMenu(event) {
             // Close any existing menu
-            if (this._contextMenu) {
-                this._contextMenu.close();
-                this._contextMenu.destroy();
-            }
+            this._closeContextMenu();
 
             // Create popup menu
             this._contextMenu = new PopupMenu.PopupMenu(this, 0.5, St.Side.TOP);
@@ -964,10 +970,9 @@ const DesktopIcon = GObject.registerClass(
             // Get mouse position in stage coordinates
             const [stageX, stageY] = event.get_coords();
 
-            // Get screen dimensions
+            // Get work area (excludes panels/dash)
             const monitor = Main.layoutManager.primaryMonitor;
-            const screenWidth = monitor.width;
-            const screenHeight = monitor.height;
+            const workArea = Main.layoutManager.getWorkAreaForMonitor(monitor.index);
 
             // Open menu first to get its size
             this._contextMenu.open();
@@ -976,25 +981,74 @@ const DesktopIcon = GObject.registerClass(
             const menuWidth = this._contextMenu.actor.width;
             const menuHeight = this._contextMenu.actor.height;
 
-            // Adjust position to keep menu on screen
+            // Calculate position - menu appears at mouse position
             let menuX = stageX;
             let menuY = stageY;
 
+            // Check if menu fits below the cursor (default: open downward)
+            const spaceBelow = (workArea.y + workArea.height) - stageY;
+            const spaceAbove = stageY - workArea.y;
+
+            if (menuHeight > spaceBelow && spaceAbove > spaceBelow) {
+                // Not enough space below, open upward (menu above cursor)
+                menuY = stageY - menuHeight;
+            }
+            // else: open downward (default, menuY = stageY)
+
             // Don't go off right edge
-            if (menuX + menuWidth > screenWidth) {
-                menuX = screenWidth - menuWidth - 10;
+            if (menuX + menuWidth > workArea.x + workArea.width) {
+                menuX = stageX - menuWidth; // Open to the left of cursor
             }
 
-            // Don't go off bottom edge
-            if (menuY + menuHeight > screenHeight) {
-                menuY = screenHeight - menuHeight - 10;
-            }
-
-            // Don't go off left/top edge
-            menuX = Math.max(10, menuX);
-            menuY = Math.max(10, menuY);
+            // Clamp to work area bounds
+            menuX = Math.max(workArea.x + 5, Math.min(menuX, workArea.x + workArea.width - menuWidth - 5));
+            menuY = Math.max(workArea.y + 5, Math.min(menuY, workArea.y + workArea.height - menuHeight - 5));
 
             this._contextMenu.actor.set_position(menuX, menuY);
+
+            // Close menu when clicking outside
+            this._menuCaptureId = global.stage.connect('captured-event', (actor, capturedEvent) => {
+                if (capturedEvent.type() === Clutter.EventType.BUTTON_PRESS) {
+                    // Check if click is outside the menu
+                    const [clickX, clickY] = capturedEvent.get_coords();
+                    const [menuActorX, menuActorY] = this._contextMenu.actor.get_transformed_position();
+                    const menuW = this._contextMenu.actor.width;
+                    const menuH = this._contextMenu.actor.height;
+
+                    if (clickX < menuActorX || clickX > menuActorX + menuW ||
+                        clickY < menuActorY || clickY > menuActorY + menuH) {
+                        this._closeContextMenu();
+                        return Clutter.EVENT_STOP;
+                    }
+                }
+                return Clutter.EVENT_PROPAGATE;
+            });
+
+            // Close menu when a window gets focus (clicking on an app)
+            // Use a small delay to avoid closing when menu first appears
+            this._menuFocusId = global.display.connect('notify::focus-window', () => {
+                const focusWindow = global.display.get_focus_window();
+                // Only close if a real window gets focus
+                if (focusWindow) {
+                    this._closeContextMenu();
+                }
+            });
+        }
+
+        _closeContextMenu() {
+            if (this._menuCaptureId) {
+                global.stage.disconnect(this._menuCaptureId);
+                this._menuCaptureId = null;
+            }
+            if (this._menuFocusId) {
+                global.display.disconnect(this._menuFocusId);
+                this._menuFocusId = null;
+            }
+            if (this._contextMenu) {
+                this._contextMenu.close();
+                this._contextMenu.destroy();
+                this._contextMenu = null;
+            }
         }
 
         _moveToTrash() {
@@ -1013,6 +1067,13 @@ const DesktopIcon = GObject.registerClass(
             if (this._icon) {
                 this._icon.set_icon_size(newSize);
             }
+
+            // Update widget size to match new cell dimensions
+            const cellWidth = this._extension._getCellWidth();
+            const cellHeight = this._extension._getCellHeight();
+            const widgetWidth = cellWidth * this._cellSize.cols;
+            const widgetHeight = cellHeight * this._cellSize.rows;
+            this.set_size(widgetWidth, widgetHeight);
         }
 
         getFile() {
@@ -1024,6 +1085,9 @@ const DesktopIcon = GObject.registerClass(
         }
 
         destroy() {
+            // Clean up context menu
+            this._closeContextMenu();
+
             // Clean up notification if active
             if (this._isNotifying) {
                 if (this._notifyTimeoutId) {
@@ -1035,8 +1099,6 @@ const DesktopIcon = GObject.registerClass(
                     this._notifyClone = null;
                 }
             }
-            // Clean up stage event capture
-            this._disconnectStageCapture();
             super.destroy();
         }
     }
@@ -1236,6 +1298,9 @@ export default class ObisionExtensionDesk extends Extension {
         this._fileMonitor = null;
         this._iconPositions = {}; // Cache for icon positions
 
+        // Initialize cell grid (bidimensional array)
+        this._cells = null;
+
         // Load saved positions
         this._loadIconPositions();
 
@@ -1256,6 +1321,9 @@ export default class ObisionExtensionDesk extends Extension {
         // Position grid and overlay
         this._updateGridPosition();
 
+        // Build cell grid structure
+        this._buildCellGrid();
+
         // Load desktop files
         this._loadDesktopFiles();
 
@@ -1265,12 +1333,14 @@ export default class ObisionExtensionDesk extends Extension {
         // Connect to settings changes
         this._settingsChangedId = this._settings.connect('changed', (settings, key) => {
             if (key === 'icon-size') {
-                this._grid.repositionIcons();
+                this._buildCellGrid();
+                this._reloadIcons();
                 this._gridOverlay.refresh();
             } else if (key === 'grid-columns' || key === 'grid-rows') {
-                // Grid dimensions changed - refresh overlay and reposition icons
+                // Grid dimensions changed - rebuild cell grid
+                this._buildCellGrid();
+                this._reloadIcons();
                 this._gridOverlay.refresh();
-                this._grid.repositionIcons();
             } else if (key.startsWith('grid-') || key === 'use-grid') {
                 this._gridOverlay.refresh();
             }
@@ -1279,7 +1349,8 @@ export default class ObisionExtensionDesk extends Extension {
         // Monitor for monitor changes
         this._monitorsChangedId = Main.layoutManager.connect('monitors-changed', () => {
             this._updateGridPosition();
-            this._grid.repositionIcons();
+            this._buildCellGrid();
+            this._reloadIcons();
         });
 
         log('Obision Desk enabled');
@@ -1333,6 +1404,9 @@ export default class ObisionExtensionDesk extends Extension {
 
         const workArea = Main.layoutManager.getWorkAreaForMonitor(monitor.index);
 
+        log(`[Obision] WorkArea: x=${workArea.x}, y=${workArea.y}, w=${workArea.width}, h=${workArea.height}`);
+        log(`[Obision] Monitor: w=${monitor.width}, h=${monitor.height}`);
+
         // Position grid overlay
         if (this._gridOverlay) {
             this._gridOverlay.set_position(workArea.x, workArea.y);
@@ -1343,6 +1417,171 @@ export default class ObisionExtensionDesk extends Extension {
         // Position icon container
         this._grid.set_position(workArea.x, workArea.y);
         this._grid.set_size(workArea.width, workArea.height);
+
+        // Rebuild cell grid when position changes
+        this._buildCellGrid();
+    }
+
+    /**
+     * Build the bidimensional cell grid structure
+     * Each cell contains: x, y, width, height, icon reference, occupied status
+     */
+    _buildCellGrid() {
+        const columns = this._settings.get_int('grid-columns');
+        const rows = this._settings.get_int('grid-rows');
+        const cellWidth = this._getCellWidth();
+        const cellHeight = this._getCellHeight();
+
+        // Initialize 2D array
+        this._cells = [];
+
+        for (let col = 0; col < columns; col++) {
+            this._cells[col] = [];
+            for (let row = 0; row < rows; row++) {
+                this._cells[col][row] = {
+                    col: col,
+                    row: row,
+                    x: col * cellWidth,
+                    y: row * cellHeight,
+                    width: cellWidth,
+                    height: cellHeight,
+                    icon: null,
+                    occupied: false,
+                };
+            }
+        }
+
+        log(`[Obision] Cell grid built: ${columns}x${rows}, cell size: ${cellWidth}x${cellHeight}`);
+    }
+
+    /**
+     * Get cell at column, row
+     */
+    getCell(col, row) {
+        if (!this._cells) return null;
+        if (col < 0 || row < 0) return null;
+        if (col >= this._cells.length) return null;
+        if (row >= this._cells[col].length) return null;
+        return this._cells[col][row];
+    }
+
+    /**
+     * Get cell at pixel coordinates
+     */
+    getCellAtPixel(x, y) {
+        const cellWidth = this._getCellWidth();
+        const cellHeight = this._getCellHeight();
+        const col = Math.floor(x / cellWidth);
+        const row = Math.floor(y / cellHeight);
+        return this.getCell(col, row);
+    }
+
+    /**
+     * Place icon in cell (marks cells as occupied for multi-cell icons)
+     */
+    placeIconInCell(icon, col, row) {
+        const cellSize = icon._cellSize || { cols: 1, rows: 1 };
+
+        // Mark all cells this icon occupies
+        for (let dc = 0; dc < cellSize.cols; dc++) {
+            for (let dr = 0; dr < cellSize.rows; dr++) {
+                const cell = this.getCell(col + dc, row + dr);
+                if (cell) {
+                    cell.occupied = true;
+                    cell.icon = icon;
+                }
+            }
+        }
+
+        // Position the icon at the cell's pixel position
+        const cell = this.getCell(col, row);
+        if (cell) {
+            icon.set_position(cell.x, cell.y);
+        }
+    }
+
+    /**
+     * Remove icon from its cells
+     */
+    removeIconFromCells(icon) {
+        if (!this._cells) return;
+
+        const columns = this._settings.get_int('grid-columns');
+        const rows = this._settings.get_int('grid-rows');
+
+        for (let col = 0; col < columns; col++) {
+            for (let row = 0; row < rows; row++) {
+                const cell = this._cells[col][row];
+                if (cell.icon === icon) {
+                    cell.icon = null;
+                    cell.occupied = false;
+                }
+            }
+        }
+    }
+
+    /**
+     * Check if cells are free for placing an icon
+     */
+    areCellsFree(col, row, cellSize, excludeIcon = null) {
+        const cols = cellSize.cols || 1;
+        const rows = cellSize.rows || 1;
+
+        for (let dc = 0; dc < cols; dc++) {
+            for (let dr = 0; dr < rows; dr++) {
+                const cell = this.getCell(col + dc, row + dr);
+                if (!cell) return false; // Out of bounds
+                if (cell.occupied && cell.icon !== excludeIcon) return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Find first free cell that can fit the icon
+     */
+    findFreeCell(cellSize, excludeIcon = null) {
+        const columns = this._settings.get_int('grid-columns');
+        const rows = this._settings.get_int('grid-rows');
+
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < columns; col++) {
+                if (this.areCellsFree(col, row, cellSize, excludeIcon)) {
+                    return { col, row };
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Find nearest free cell to target position
+     */
+    findNearestFreeCell(targetCol, targetRow, cellSize, excludeIcon = null) {
+        // Try target cell first
+        if (this.areCellsFree(targetCol, targetRow, cellSize, excludeIcon)) {
+            return { col: targetCol, row: targetRow };
+        }
+
+        // Spiral search
+        const maxRadius = 20;
+        for (let radius = 1; radius <= maxRadius; radius++) {
+            for (let dc = -radius; dc <= radius; dc++) {
+                for (let dr = -radius; dr <= radius; dr++) {
+                    if (Math.abs(dc) !== radius && Math.abs(dr) !== radius) continue;
+
+                    const col = targetCol + dc;
+                    const row = targetRow + dr;
+
+                    if (col < 0 || row < 0) continue;
+
+                    if (this.areCellsFree(col, row, cellSize, excludeIcon)) {
+                        return { col, row };
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     _getCellWidth() {
@@ -1392,12 +1631,24 @@ export default class ObisionExtensionDesk extends Extension {
         return this._getBaseIconSize();
     }
 
-    _snapToGrid(x, y) {
+    _snapToGrid(x, y, icon = null) {
         const cellWidth = this._getCellSize();
         const cellHeight = this._getCellHeight();
 
-        const col = Math.round(x / cellWidth);
-        const row = Math.round(y / cellHeight);
+        // If icon provided, use its center for snapping
+        let snapX = x;
+        let snapY = y;
+        if (icon && icon._cellSize) {
+            // Add half the icon's width/height to get center point
+            const iconWidth = cellWidth * icon._cellSize.cols;
+            const iconHeight = cellHeight * icon._cellSize.rows;
+            snapX = x + iconWidth / 2;
+            snapY = y + iconHeight / 2;
+        }
+
+        // Determine which cell the center point is in
+        const col = Math.floor(snapX / cellWidth);
+        const row = Math.floor(snapY / cellHeight);
 
         return {
             x: col * cellWidth,
@@ -1712,6 +1963,8 @@ export default class ObisionExtensionDesk extends Extension {
         // Cancel any previous drag
         this._cancelDrag();
 
+        log(`[Obision] _startIconDrag: ${icon._fileName} at stage (${stageX}, ${stageY}), icon pos (${icon.x}, ${icon.y})`);
+
         this._dragIcon = icon;
         this._dragStartX = stageX;
         this._dragStartY = stageY;
@@ -1746,6 +1999,7 @@ export default class ObisionExtensionDesk extends Extension {
 
             if (!buttonPressed) {
                 // Button was released but we missed the event
+                log(`[Obision] Motion: button not pressed, ending drag`);
                 this._endDrag();
                 return Clutter.EVENT_PROPAGATE;
             }
@@ -1756,6 +2010,7 @@ export default class ObisionExtensionDesk extends Extension {
 
             // Start actual drag if moved more than 5 pixels
             if (!this._isDragging && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+                log(`[Obision] Starting actual drag, delta (${dx}, ${dy})`);
                 this._isDragging = true;
                 this._dragIcon._dragging = true;
                 this._dragIcon.add_style_class_name('dragging');
@@ -1796,6 +2051,7 @@ export default class ObisionExtensionDesk extends Extension {
             }
         } else if (type === Clutter.EventType.BUTTON_RELEASE) {
             if (this._dragIcon) {
+                log(`[Obision] Button release, wasDragging: ${this._isDragging}`);
                 const wasDragging = this._isDragging;
                 this._endDrag();
                 return wasDragging ? Clutter.EVENT_STOP : Clutter.EVENT_PROPAGATE;
@@ -1843,102 +2099,69 @@ export default class ObisionExtensionDesk extends Extension {
             icon._dragging = false;
             icon.remove_style_class_name('dragging');
 
-            // Check if final position is valid
-            const bounds = this._getValidBounds();
-            let finalX = icon.x;
-            let finalY = icon.y;
+            const useGrid = this._settings.get_boolean('use-grid');
 
-            const isInBounds = finalX >= 0 && finalX <= bounds.maxX &&
-                finalY >= 0 && finalY <= bounds.maxY;
+            if (useGrid && this._cells) {
+                // Remove icon from old cells
+                this.removeIconFromCells(icon);
 
-            if (!isInBounds) {
-                // Out of bounds, animate back
+                // Get icon center position to determine target cell
+                const cellWidth = this._getCellWidth();
+                const cellHeight = this._getCellHeight();
+                const iconCols = icon._cellSize?.cols || 1;
+                const iconRows = icon._cellSize?.rows || 1;
+
+                // Use icon center for determining cell
+                const centerX = icon.x + (cellWidth * iconCols) / 2;
+                const centerY = icon.y + (cellHeight * iconRows) / 2;
+
+                const targetCol = Math.floor(centerX / cellWidth);
+                const targetRow = Math.floor(centerY / cellHeight);
+
+                log(`[Obision] Drop: icon at (${icon.x}, ${icon.y}), center (${centerX}, ${centerY}), target cell (${targetCol}, ${targetRow})`);
+
+                // Find free cell (target or nearest)
+                const freeCell = this.findNearestFreeCell(targetCol, targetRow, icon._cellSize || { cols: 1, rows: 1 }, icon);
+
+                if (freeCell) {
+                    const cell = this.getCell(freeCell.col, freeCell.row);
+                    if (cell) {
+                        log(`[Obision] Placing in cell (${freeCell.col}, ${freeCell.row}) at pixel (${cell.x}, ${cell.y})`);
+
+                        // Animate to cell position
+                        icon.ease({
+                            x: cell.x,
+                            y: cell.y,
+                            duration: 150,
+                            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                            onComplete: () => {
+                                // Mark cells as occupied
+                                this.placeIconInCell(icon, freeCell.col, freeCell.row);
+                                this._saveIconPosition(icon._fileName, cell.x, cell.y);
+                            }
+                        });
+                        return;
+                    }
+                }
+
+                // No free cell, return to original
+                log(`[Obision] No free cell, returning to original`);
                 icon.ease({
                     x: this._dragOriginalX,
                     y: this._dragOriginalY,
                     duration: 250,
                     mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-                });
-                return;
-            }
-
-            const useGrid = this._settings.get_boolean('use-grid');
-
-            if (useGrid) {
-                // Snap to grid mode
-                const snapped = this._snapToGrid(finalX, finalY);
-                let targetCol = snapped.col;
-                let targetRow = snapped.row;
-
-                // Check if cell is occupied
-                if (this._isCellOccupied(targetCol, targetRow, icon)) {
-                    // Find nearest free cell
-                    const freeCell = this._findNearestFreeCell(targetCol, targetRow, icon);
-                    if (freeCell) {
-                        targetCol = freeCell.col;
-                        targetRow = freeCell.row;
-                    } else {
-                        // No free cell, return to original
-                        icon.ease({
-                            x: this._dragOriginalX,
-                            y: this._dragOriginalY,
-                            duration: 250,
-                            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-                        });
-                        return;
-                    }
-                }
-
-                // Calculate final position from cell
-                const cellWidth = this._getCellSize();
-                const cellHeight = this._getCellHeight();
-                finalX = targetCol * cellWidth;
-                finalY = targetRow * cellHeight;
-
-                // Animate to grid position
-                icon.ease({
-                    x: finalX,
-                    y: finalY,
-                    duration: 150,
-                    mode: Clutter.AnimationMode.EASE_OUT_QUAD,
                     onComplete: () => {
-                        this._saveIconPosition(icon._fileName, finalX, finalY);
+                        // Re-place in original cell
+                        const origCell = this.getCellAtPixel(this._dragOriginalX, this._dragOriginalY);
+                        if (origCell) {
+                            this.placeIconInCell(icon, origCell.col, origCell.row);
+                        }
                     }
                 });
             } else {
-                // Free positioning mode - check for collision
-                const collision = this._findCollidingIcon(icon, finalX, finalY);
-
-                if (collision) {
-                    // Find nearest free position adjacent to the colliding icon
-                    const freePos = this._findNearestFreePosition(icon, collision, finalX, finalY);
-                    if (freePos) {
-                        finalX = freePos.x;
-                        finalY = freePos.y;
-                        icon.ease({
-                            x: finalX,
-                            y: finalY,
-                            duration: 150,
-                            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-                            onComplete: () => {
-                                this._saveIconPosition(icon._fileName, finalX, finalY);
-                            }
-                        });
-                        return;
-                    } else {
-                        // No free position found, return to original
-                        icon.ease({
-                            x: this._dragOriginalX,
-                            y: this._dragOriginalY,
-                            duration: 250,
-                            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-                        });
-                        return;
-                    }
-                }
-
-                // No collision, save position
-                this._saveIconPosition(icon._fileName, finalX, finalY);
+                // Free positioning mode (no grid)
+                this._saveIconPosition(icon._fileName, icon.x, icon.y);
             }
         }
     }
@@ -2032,15 +2255,44 @@ export default class ObisionExtensionDesk extends Extension {
     }
 
     _getIconPosition(fileName, defaultX, defaultY) {
+        const cellWidth = this._getCellWidth();
+        const cellHeight = this._getCellHeight();
+
         if (this._iconPositions[fileName]) {
             const saved = this._iconPositions[fileName];
             const bounds = this._getValidBounds();
+
+            // Snap saved position to current grid
+            const col = Math.round(saved.x / cellWidth);
+            const row = Math.round(saved.y / cellHeight);
+
             // Clamp to valid range
-            const x = Math.max(0, Math.min(saved.x, bounds.maxX));
-            const y = Math.max(0, Math.min(saved.y, bounds.maxY));
+            const x = Math.max(0, Math.min(col * cellWidth, bounds.maxX));
+            const y = Math.max(0, Math.min(row * cellHeight, bounds.maxY));
             return { x, y };
         }
-        return { x: defaultX, y: defaultY };
+
+        // Snap default position to grid too
+        const col = Math.round(defaultX / cellWidth);
+        const row = Math.round(defaultY / cellHeight);
+        return { x: col * cellWidth, y: row * cellHeight };
+    }
+
+    /**
+     * Reload all icons (clear and re-add)
+     */
+    _reloadIcons() {
+        // Save current icon positions before clearing
+        for (const icon of this._grid.getIcons()) {
+            this._saveIconPosition(icon._fileName, icon.x, icon.y);
+        }
+
+        // Clear icons and cell grid
+        this._grid.clearIcons();
+        this._buildCellGrid();
+
+        // Reload from desktop
+        this._loadDesktopFiles();
     }
 
     _loadDesktopFiles() {
@@ -2058,12 +2310,6 @@ export default class ObisionExtensionDesk extends Extension {
                 null
             );
 
-            const cellWidth = this._getCellWidth();
-            const cellHeight = this._getCellHeight();
-            const columns = this._settings.get_int('grid-columns');
-
-            let col = 0;
-            let row = 0;
             let fileInfo;
 
             while ((fileInfo = enumerator.next_file(null)) !== null) {
@@ -2076,20 +2322,41 @@ export default class ObisionExtensionDesk extends Extension {
                 const file = desktopDir.get_child(name);
                 fileInfo.set_attribute_object('standard::file', file);
 
-                // Calculate default grid position
-                const defaultX = col * cellWidth;
-                const defaultY = row * cellHeight;
-
-                // Get saved position or use default
-                const pos = this._getIconPosition(name, defaultX, defaultY);
-
+                // Create icon first to know its cell size
                 const icon = new DesktopIcon(fileInfo, this, name);
-                this._grid.addIcon(icon, pos.x, pos.y);
+                const iconCellSize = icon._cellSize || { cols: 1, rows: 1 };
 
-                col++;
-                if (col >= columns) {
-                    col = 0;
-                    row++;
+                // Try to get saved position
+                let targetCol = 0;
+                let targetRow = 0;
+
+                if (this._iconPositions[name]) {
+                    const saved = this._iconPositions[name];
+                    const cellWidth = this._getCellWidth();
+                    const cellHeight = this._getCellHeight();
+                    targetCol = Math.floor(saved.x / cellWidth);
+                    targetRow = Math.floor(saved.y / cellHeight);
+                }
+
+                // Find a free cell (saved position or first available)
+                let freeCell = null;
+                if (this.areCellsFree(targetCol, targetRow, iconCellSize)) {
+                    freeCell = { col: targetCol, row: targetRow };
+                } else {
+                    freeCell = this.findFreeCell(iconCellSize);
+                }
+
+                if (freeCell) {
+                    const cell = this.getCell(freeCell.col, freeCell.row);
+                    if (cell) {
+                        this._grid.addIcon(icon, cell.x, cell.y);
+                        this.placeIconInCell(icon, freeCell.col, freeCell.row);
+                        log(`[Obision] Loaded ${name} at cell (${freeCell.col}, ${freeCell.row})`);
+                    }
+                } else {
+                    // No free cell, add at 0,0 (shouldn't happen normally)
+                    this._grid.addIcon(icon, 0, 0);
+                    log(`[Obision] Warning: No free cell for ${name}`);
                 }
             }
         } catch (e) {
