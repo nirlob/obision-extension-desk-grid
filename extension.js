@@ -981,42 +981,75 @@ const DesktopIcon = GObject.registerClass(
             const menuWidth = this._contextMenu.actor.width;
             const menuHeight = this._contextMenu.actor.height;
 
-            // Calculate position - menu appears at mouse position
-            let menuX = stageX;
-            let menuY = stageY;
+            // Calculate position according to rules:
+            // 1. If menu fits below mouse: top-left corner at mouse position
+            // 2. If menu doesn't fit below but fits above: bottom-left corner at mouse position
+            // 3. If menu doesn't fit either way: center vertically on mouse position
 
-            // Check if menu fits below the cursor (default: open downward)
+            let menuX = stageX;
+            let menuY;
+
             const spaceBelow = (workArea.y + workArea.height) - stageY;
             const spaceAbove = stageY - workArea.y;
 
-            if (menuHeight > spaceBelow && spaceAbove > spaceBelow) {
-                // Not enough space below, open upward (menu above cursor)
+            if (menuHeight <= spaceBelow) {
+                // Case 1: Fits below - top-left corner at mouse
+                menuY = stageY;
+            } else if (menuHeight <= spaceAbove) {
+                // Case 2: Fits above - bottom-left corner at mouse
                 menuY = stageY - menuHeight;
-            }
-            // else: open downward (default, menuY = stageY)
-
-            // Don't go off right edge
-            if (menuX + menuWidth > workArea.x + workArea.width) {
-                menuX = stageX - menuWidth; // Open to the left of cursor
+            } else {
+                // Case 3: Doesn't fit either way - center on mouse
+                menuY = stageY - menuHeight / 2;
             }
 
-            // Clamp to work area bounds
-            menuX = Math.max(workArea.x + 5, Math.min(menuX, workArea.x + workArea.width - menuWidth - 5));
-            menuY = Math.max(workArea.y + 5, Math.min(menuY, workArea.y + workArea.height - menuHeight - 5));
+            // Handle horizontal positioning
+            const spaceRight = (workArea.x + workArea.width) - stageX;
+            if (menuWidth > spaceRight) {
+                // Open to the left of cursor (right edge at mouse)
+                menuX = stageX - menuWidth;
+            }
+
+            // Final clamp to work area bounds
+            menuX = Math.max(workArea.x, Math.min(menuX, workArea.x + workArea.width - menuWidth));
+            menuY = Math.max(workArea.y, Math.min(menuY, workArea.y + workArea.height - menuHeight));
 
             this._contextMenu.actor.set_position(menuX, menuY);
+
+            // Store menu reference for submenu check
+            const contextMenu = this._contextMenu;
 
             // Close menu when clicking outside
             this._menuCaptureId = global.stage.connect('captured-event', (actor, capturedEvent) => {
                 if (capturedEvent.type() === Clutter.EventType.BUTTON_PRESS) {
-                    // Check if click is outside the menu
                     const [clickX, clickY] = capturedEvent.get_coords();
-                    const [menuActorX, menuActorY] = this._contextMenu.actor.get_transformed_position();
-                    const menuW = this._contextMenu.actor.width;
-                    const menuH = this._contextMenu.actor.height;
 
-                    if (clickX < menuActorX || clickX > menuActorX + menuW ||
-                        clickY < menuActorY || clickY > menuActorY + menuH) {
+                    // Check if click is inside main menu
+                    const [menuActorX, menuActorY] = contextMenu.actor.get_transformed_position();
+                    const menuW = contextMenu.actor.width;
+                    const menuH = contextMenu.actor.height;
+
+                    const insideMainMenu = clickX >= menuActorX && clickX <= menuActorX + menuW &&
+                        clickY >= menuActorY && clickY <= menuActorY + menuH;
+
+                    // Check if click is inside any open submenu
+                    let insideSubmenu = false;
+                    for (const item of contextMenu._getMenuItems()) {
+                        if (item instanceof PopupMenu.PopupSubMenuMenuItem && item.menu.isOpen) {
+                            const subActor = item.menu.actor;
+                            const [subX, subY] = subActor.get_transformed_position();
+                            const subW = subActor.width;
+                            const subH = subActor.height;
+
+                            if (clickX >= subX && clickX <= subX + subW &&
+                                clickY >= subY && clickY <= subY + subH) {
+                                insideSubmenu = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!insideMainMenu && !insideSubmenu) {
                         this._closeContextMenu();
                         return Clutter.EVENT_STOP;
                     }
@@ -1025,7 +1058,6 @@ const DesktopIcon = GObject.registerClass(
             });
 
             // Close menu when a window gets focus (clicking on an app)
-            // Use a small delay to avoid closing when menu first appears
             this._menuFocusId = global.display.connect('notify::focus-window', () => {
                 const focusWindow = global.display.get_focus_window();
                 // Only close if a real window gets focus
