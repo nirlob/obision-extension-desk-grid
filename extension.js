@@ -291,7 +291,13 @@ const DesktopIcon = GObject.registerClass(
 
         _setHoverStyle(hover) {
             if (hover && !this._selected) {
-                this.set_style('background-color: rgba(255, 255, 255, 0.25);');
+                // Add shadow on hover if icon has no elevation
+                const hasElevation = this._elevation && this._elevation > 0;
+                if (hasElevation) {
+                    this.set_style('background-color: rgba(255, 255, 255, 0.25);');
+                } else {
+                    this.set_style('background-color: rgba(255, 255, 255, 0.25); box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);');
+                }
             } else if (!hover && !this._selected) {
                 this.set_style('');
             }
@@ -301,9 +307,9 @@ const DesktopIcon = GObject.registerClass(
             // Set pivot point to center for scaling from center
             this.set_pivot_point(0.5, 0.5);
 
-            // Use fixed pixel increase (~6px) instead of percentage
+            // Use fixed pixel increase (~8px) instead of percentage
             // This makes the effect consistent across all icon sizes
-            const pixelIncrease = 6;
+            const pixelIncrease = 8;
             const baseSize = Math.max(this.width, this.height);
             const scaleFactor = hover ? 1 + (pixelIncrease / baseSize) : 1.0;
 
@@ -1126,14 +1132,96 @@ const DesktopGrid = GObject.registerClass(
 
             this._extension = extension;
             this._icons = [];
+            this._contextMenu = null;
 
-            // Click on empty area deselects
+            // Click on empty area
             this.connect('button-press-event', (actor, event) => {
-                if (event.get_button() === 1) {
+                const button = event.get_button();
+                if (button === 1) {
+                    // Left click - deselect all
+                    this._closeContextMenu();
                     this._extension._deselectAll();
+                } else if (button === 3) {
+                    // Right click - show desktop context menu
+                    this._showDesktopContextMenu(event);
+                    return Clutter.EVENT_STOP;
                 }
                 return Clutter.EVENT_PROPAGATE;
             });
+        }
+
+        _showDesktopContextMenu(event) {
+            this._closeContextMenu();
+
+            const [mouseX, mouseY] = event.get_coords();
+
+            // Create a simple popup menu using BoxLayout
+            this._contextMenu = new St.BoxLayout({
+                style_class: 'popup-menu-content',
+                vertical: true,
+                style: 'padding: 8px 0;',
+            });
+
+            // Add menu item
+            const prefsItem = new St.Button({
+                style_class: 'popup-menu-item',
+                label: 'Preferencias de escritorio',
+                x_align: Clutter.ActorAlign.START,
+                style: 'padding: 8px 16px;',
+            });
+            prefsItem.connect('clicked', () => {
+                this._closeContextMenu();
+                this._extension.openPreferences();
+            });
+            this._contextMenu.add_child(prefsItem);
+
+            // Position menu at mouse, but keep within screen bounds
+            const monitor = Main.layoutManager.primaryMonitor;
+            let menuX = mouseX;
+            let menuY = mouseY;
+
+            // We'll adjust after adding to get actual size
+            Main.layoutManager.addChrome(this._contextMenu);
+
+            // Adjust position to stay on screen
+            const menuWidth = this._contextMenu.width || 200;
+            const menuHeight = this._contextMenu.height || 40;
+
+            if (menuX + menuWidth > monitor.x + monitor.width) {
+                menuX = monitor.x + monitor.width - menuWidth - 10;
+            }
+            if (menuY + menuHeight > monitor.y + monitor.height) {
+                menuY = monitor.y + monitor.height - menuHeight - 10;
+            }
+
+            this._contextMenu.set_position(menuX, menuY);
+
+            // Close menu when clicking elsewhere
+            this._contextMenuGrabId = global.stage.connect('button-press-event', (actor, ev) => {
+                const [clickX, clickY] = ev.get_coords();
+                const [menuAbsX, menuAbsY] = this._contextMenu.get_transformed_position();
+                const menuW = this._contextMenu.width;
+                const menuH = this._contextMenu.height;
+
+                // Check if click is outside menu
+                if (clickX < menuAbsX || clickX > menuAbsX + menuW ||
+                    clickY < menuAbsY || clickY > menuAbsY + menuH) {
+                    this._closeContextMenu();
+                }
+                return Clutter.EVENT_PROPAGATE;
+            });
+        }
+
+        _closeContextMenu() {
+            if (this._contextMenuGrabId) {
+                global.stage.disconnect(this._contextMenuGrabId);
+                this._contextMenuGrabId = null;
+            }
+            if (this._contextMenu) {
+                Main.layoutManager.removeChrome(this._contextMenu);
+                this._contextMenu.destroy();
+                this._contextMenu = null;
+            }
         }
 
         addIcon(icon, x, y) {
@@ -1188,6 +1276,7 @@ const DesktopGrid = GObject.registerClass(
         }
 
         destroy() {
+            this._closeContextMenu();
             this.clearIcons();
             super.destroy();
         }
@@ -1527,8 +1616,8 @@ export default class ObisionExtensionDesk extends Extension {
 
         for (let col = 0; col < columns; col++) {
             for (let row = 0; row < rows; row++) {
-                const cell = this._cells[col][row];
-                if (cell.icon === icon) {
+                const cell = this.getCell(col, row);
+                if (cell && cell.icon === icon) {
                     cell.icon = null;
                     cell.occupied = false;
                 }
@@ -1900,6 +1989,12 @@ export default class ObisionExtensionDesk extends Extension {
         this._iconStartX = icon.x;
         this._iconStartY = icon.y;
         this._isDragging = false;
+
+        // Calculate offset from click point to icon's top-left corner
+        // This ensures the icon follows the mouse from where it was clicked
+        const [gridX, gridY] = this._grid?.get_transformed_position() || [0, 0];
+        this._dragOffsetX = stageX - gridX - icon.x;
+        this._dragOffsetY = stageY - gridY - icon.y;
     }
 
     _onGlobalCapturedEvent(actor, event) {
@@ -1936,8 +2031,8 @@ export default class ObisionExtensionDesk extends Extension {
             const dx = stageX - this._dragStartX;
             const dy = stageY - this._dragStartY;
 
-            // Start actual drag if moved more than 5 pixels
-            if (!this._isDragging && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+            // Start actual drag if moved more than 3 pixels
+            if (!this._isDragging && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
                 this._isDragging = true;
                 this._dragIcon._dragging = true;
                 this._dragIcon.add_style_class_name('dragging');
@@ -2039,7 +2134,8 @@ export default class ObisionExtensionDesk extends Extension {
                         onComplete: () => {
                             // Mark cells as occupied
                             this.placeIconInCell(icon, targetCol, targetRow);
-                            this._saveIconPosition(icon._fileName, cell.x, cell.y);
+                            // Save using col/row
+                            this._saveIconPosition(icon._fileName, targetCol, targetRow);
                         }
                     });
                     return;
@@ -2082,9 +2178,10 @@ export default class ObisionExtensionDesk extends Extension {
         const iconRows = this._dragIcon._cellSize?.rows || 1;
 
         // Convert stage coordinates to grid coordinates
+        // Account for the offset where the user clicked within the icon
         const [gridX, gridY] = this._grid.get_transformed_position();
-        const relX = stageX - gridX;
-        const relY = stageY - gridY;
+        const relX = stageX - gridX - (this._dragOffsetX || 0);
+        const relY = stageY - gridY - (this._dragOffsetY || 0);
 
         // Calculate target cell (top-left of where icon would go)
         const targetCol = Math.floor(relX / cellWidth);
@@ -2160,12 +2257,9 @@ export default class ObisionExtensionDesk extends Extension {
         return { maxX: Math.max(0, maxX), maxY: Math.max(0, maxY) };
     }
 
-    _saveIconPosition(fileName, x, y) {
-        const bounds = this._getValidBounds();
-        const clampedX = Math.max(0, Math.min(x, bounds.maxX));
-        const clampedY = Math.max(0, Math.min(y, bounds.maxY));
-
-        this._iconPositions[fileName] = { x: clampedX, y: clampedY };
+    _saveIconPosition(fileName, col, row) {
+        // Save column and row directly (not pixels)
+        this._iconPositions[fileName] = { col: col, row: row };
         try {
             this._settings.set_string('icon-positions', JSON.stringify(this._iconPositions));
         } catch (e) {
@@ -2176,14 +2270,22 @@ export default class ObisionExtensionDesk extends Extension {
     _getIconPosition(fileName, defaultX, defaultY) {
         const cellWidth = this._getCellWidth();
         const cellHeight = this._getCellHeight();
+        const bounds = this._getValidBounds();
 
         if (this._iconPositions[fileName]) {
             const saved = this._iconPositions[fileName];
-            const bounds = this._getValidBounds();
 
-            // Snap saved position to current grid
-            const col = Math.round(saved.x / cellWidth);
-            const row = Math.round(saved.y / cellHeight);
+            // Handle both old format (x,y pixels) and new format (col,row)
+            let col, row;
+            if (saved.col !== undefined && saved.row !== undefined) {
+                // New format: col/row
+                col = saved.col;
+                row = saved.row;
+            } else {
+                // Old format: x/y pixels - convert to col/row
+                col = Math.round(saved.x / cellWidth);
+                row = Math.round(saved.y / cellHeight);
+            }
 
             // Clamp to valid range
             const x = Math.max(0, Math.min(col * cellWidth, bounds.maxX));
@@ -2191,7 +2293,7 @@ export default class ObisionExtensionDesk extends Extension {
             return { x, y };
         }
 
-        // Snap default position to grid too
+        // Snap default position to grid
         const col = Math.round(defaultX / cellWidth);
         const row = Math.round(defaultY / cellHeight);
         return { x: col * cellWidth, y: row * cellHeight };
@@ -2251,10 +2353,18 @@ export default class ObisionExtensionDesk extends Extension {
 
                 if (this._iconPositions[name]) {
                     const saved = this._iconPositions[name];
-                    const cellWidth = this._getCellWidth();
-                    const cellHeight = this._getCellHeight();
-                    targetCol = Math.floor(saved.x / cellWidth);
-                    targetRow = Math.floor(saved.y / cellHeight);
+                    // Handle both old format (x,y pixels) and new format (col,row)
+                    if (saved.col !== undefined && saved.row !== undefined) {
+                        // New format: col/row
+                        targetCol = saved.col;
+                        targetRow = saved.row;
+                    } else if (saved.x !== undefined && saved.y !== undefined) {
+                        // Old format: x/y pixels - convert to col/row
+                        const cellWidth = this._getCellWidth();
+                        const cellHeight = this._getCellHeight();
+                        targetCol = Math.floor(saved.x / cellWidth);
+                        targetRow = Math.floor(saved.y / cellHeight);
+                    }
                 }
 
                 // Find a free cell (saved position or first available)
