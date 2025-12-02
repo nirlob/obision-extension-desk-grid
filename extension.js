@@ -55,16 +55,21 @@ const DesktopIcon = GObject.registerClass(
         _init(fileInfo, extension, fileName) {
             // Get cell size for this icon (cols x rows)
             this._cellSize = extension._getIconCellSize(fileName);
-            // Calculate actual icon size in pixels based on cell dimensions
-            // Use the minimum dimension to keep icon square within its space
-            const baseIconSize = extension._getBaseIconSize();
-            const iconSize = Math.min(this._cellSize.cols, this._cellSize.rows) * baseIconSize;
 
             // Calculate widget size to exactly fit the cells
             const cellWidth = extension._getCellWidth();
             const cellHeight = extension._getCellHeight();
             const widgetWidth = cellWidth * this._cellSize.cols;
             const widgetHeight = cellHeight * this._cellSize.rows;
+
+            // Calculate icon size based on available space
+            // For the icon image, use the minimum dimension to keep it square
+            // Account for padding and label height
+            const padding = 16; // Total padding (top + bottom or left + right)
+            const labelHeight = LABEL_HEIGHT;
+            const availableWidth = widgetWidth - padding;
+            const availableHeight = widgetHeight - labelHeight - padding;
+            const iconSize = Math.max(MIN_ICON_SIZE, Math.min(availableWidth, availableHeight));
 
             super._init({
                 vertical: true,
@@ -73,6 +78,7 @@ const DesktopIcon = GObject.registerClass(
                 track_hover: true,
                 style_class: 'desktop-icon',
                 x_align: Clutter.ActorAlign.CENTER,
+                y_align: Clutter.ActorAlign.CENTER,
                 // Fix widget size to cell dimensions
                 width: widgetWidth,
                 height: widgetHeight,
@@ -99,10 +105,18 @@ const DesktopIcon = GObject.registerClass(
             // Create icon from file info
             this._createIcon();
 
+            // Calculate font size proportionally to icon size
+            // Base: 10px font for base icon size (~48px)
+            const baseIconSizeRef = extension._getBaseIconSize();
+            const fontSizeRatio = iconSize / baseIconSizeRef;
+            const baseFontSize = 10;
+            const fontSize = Math.round(baseFontSize + (fontSizeRatio - 1) * 2); // Scale gently
+
             // Label
             this._label = new St.Label({
                 text: this._getDisplayName(),
                 style_class: 'desktop-icon-label',
+                style: `font-size: ${fontSize}px;`,
                 x_align: Clutter.ActorAlign.CENTER,
             });
             this.add_child(this._label);
@@ -304,6 +318,11 @@ const DesktopIcon = GObject.registerClass(
             const currentSize = this._cellSize || { cols: 1, rows: 1 };
 
             const gridWrapper = new St.BoxLayout({
+                vertical: true,
+                x_expand: true,
+            });
+
+            const gridRow = new St.BoxLayout({
                 x_expand: true,
                 x_align: Clutter.ActorAlign.CENTER,
             });
@@ -346,6 +365,13 @@ const DesktopIcon = GObject.registerClass(
             // Show current size
             highlightCells(currentSize.cols, currentSize.rows, 'background-color: rgba(53,132,228,0.5); border: 1px solid rgba(53,132,228,0.8); border-radius: 2px;');
 
+            // Tooltip label for size (below grid)
+            const sizeTooltip = new St.Label({
+                text: '',
+                style: 'font-size: 0.9em; color: rgba(255,255,255,0.7); margin-top: 6px; min-height: 16px;',
+                x_align: Clutter.ActorAlign.CENTER,
+            });
+
             // Track hover
             gridContainer.connect('motion-event', (actor, event) => {
                 const [x, y] = event.get_coords();
@@ -358,6 +384,7 @@ const DesktopIcon = GObject.registerClass(
 
                 if (hoverCol >= 1 && hoverCol <= gridSize && hoverRow >= 1 && hoverRow <= gridSize) {
                     highlightCells(hoverCol, hoverRow, 'background-color: rgba(53,132,228,0.7); border: 1px solid rgba(53,132,228,1); border-radius: 2px;');
+                    sizeTooltip.text = `${hoverCol}x${hoverRow}`;
                 }
                 return Clutter.EVENT_PROPAGATE;
             });
@@ -365,6 +392,7 @@ const DesktopIcon = GObject.registerClass(
             // Reset on leave
             gridContainer.connect('leave-event', () => {
                 highlightCells(currentSize.cols, currentSize.rows, 'background-color: rgba(53,132,228,0.5); border: 1px solid rgba(53,132,228,0.8); border-radius: 2px;');
+                sizeTooltip.text = '';
                 return Clutter.EVENT_PROPAGATE;
             });
 
@@ -383,15 +411,16 @@ const DesktopIcon = GObject.registerClass(
                 if (selCol >= 1 && selCol <= gridSize && selRow >= 1 && selRow <= gridSize) {
                     const sizeKey = `${selCol}x${selRow}`;
                     this._extension._setCustomIconCellSize(this._fileName, sizeKey);
-                    this._cellSize = { cols: selCol, rows: selRow };
-                    const newIconSize = this._extension._getIconPixelSize(this._cellSize);
-                    this.updateSize(newIconSize);
+                    const newCellSize = { cols: selCol, rows: selRow };
+                    this.updateSize(newCellSize);
                     this._closeContextMenu();
                 }
                 return Clutter.EVENT_STOP;
             });
 
-            gridWrapper.add_child(gridContainer);
+            gridRow.add_child(gridContainer);
+            gridWrapper.add_child(gridRow);
+            gridWrapper.add_child(sizeTooltip);
             sizeItem.add_child(gridWrapper);
             sizeSubMenu.menu.addMenuItem(sizeItem);
             this._contextMenu.addMenuItem(sizeSubMenu);
@@ -404,14 +433,6 @@ const DesktopIcon = GObject.registerClass(
                 vertical: true,
                 x_expand: true,
             });
-
-            // Tooltip label for elevation
-            const elevationTooltip = new St.Label({
-                text: '',
-                style: 'font-size: 0.9em; color: rgba(255,255,255,0.7); margin-bottom: 6px; min-height: 16px;',
-                x_align: Clutter.ActorAlign.CENTER,
-            });
-            elevationWrapper.add_child(elevationTooltip);
 
             const elevationRow = new St.BoxLayout({
                 style: 'spacing: 8px;',
@@ -476,7 +497,15 @@ const DesktopIcon = GObject.registerClass(
                 elevationRow.add_child(box);
             }
 
+            // Tooltip label for elevation (below boxes)
+            const elevationTooltip = new St.Label({
+                text: '',
+                style: 'font-size: 0.9em; color: rgba(255,255,255,0.7); margin-top: 6px; min-height: 16px;',
+                x_align: Clutter.ActorAlign.CENTER,
+            });
+
             elevationWrapper.add_child(elevationRow);
+            elevationWrapper.add_child(elevationTooltip);
             elevationItem.add_child(elevationWrapper);
             elevationSubMenu.menu.addMenuItem(elevationItem);
             this._contextMenu.addMenuItem(elevationSubMenu);
@@ -489,14 +518,6 @@ const DesktopIcon = GObject.registerClass(
                 vertical: true,
                 x_expand: true,
             });
-
-            // Tooltip label for background
-            const bgTooltip = new St.Label({
-                text: '',
-                style: 'font-size: 0.9em; color: rgba(255,255,255,0.7); margin-bottom: 6px; min-height: 16px;',
-                x_align: Clutter.ActorAlign.CENTER,
-            });
-            bgWrapper.add_child(bgTooltip);
 
             const bgRow = new St.BoxLayout({
                 style: 'spacing: 8px;',
@@ -558,7 +579,15 @@ const DesktopIcon = GObject.registerClass(
                 bgRow.add_child(box);
             }
 
+            // Tooltip label for background (below boxes)
+            const bgTooltip = new St.Label({
+                text: '',
+                style: 'font-size: 0.9em; color: rgba(255,255,255,0.7); margin-top: 6px; min-height: 16px;',
+                x_align: Clutter.ActorAlign.CENTER,
+            });
+
             bgWrapper.add_child(bgRow);
+            bgWrapper.add_child(bgTooltip);
             bgItem.add_child(bgWrapper);
             bgSubMenu.menu.addMenuItem(bgItem);
             this._contextMenu.addMenuItem(bgSubMenu);
@@ -857,17 +886,39 @@ const DesktopIcon = GObject.registerClass(
             }
         }
 
-        updateSize(newSize) {
-            this._iconSize = newSize;
-            if (this._icon) {
-                this._icon.set_icon_size(newSize);
+        updateSize(newCellSize) {
+            // Update cell size
+            if (newCellSize) {
+                this._cellSize = newCellSize;
             }
 
-            // Update widget size to match new cell dimensions
+            // Recalculate widget dimensions
             const cellWidth = this._extension._getCellWidth();
             const cellHeight = this._extension._getCellHeight();
             const widgetWidth = cellWidth * this._cellSize.cols;
             const widgetHeight = cellHeight * this._cellSize.rows;
+
+            // Calculate icon size based on available space
+            const padding = 16;
+            const labelHeight = LABEL_HEIGHT;
+            const availableWidth = widgetWidth - padding;
+            const availableHeight = widgetHeight - labelHeight - padding;
+            const iconSize = Math.max(MIN_ICON_SIZE, Math.min(availableWidth, availableHeight));
+
+            this._iconSize = iconSize;
+            if (this._icon) {
+                this._icon.set_icon_size(iconSize);
+            }
+
+            // Update font size proportionally
+            const baseIconSizeRef = this._extension._getBaseIconSize();
+            const fontSizeRatio = iconSize / baseIconSizeRef;
+            const baseFontSize = 10;
+            const fontSize = Math.round(baseFontSize + (fontSizeRatio - 1) * 2);
+            if (this._label) {
+                this._label.style = `font-size: ${fontSize}px;`;
+            }
+
             this.set_size(widgetWidth, widgetHeight);
         }
 
