@@ -16,6 +16,7 @@ import Cairo from 'gi://cairo';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 
 // Icon sizes based on cell count (cols x rows)
 // Base icon size fits in 1 cell, larger icons span multiple cells
@@ -47,11 +48,7 @@ const LABEL_HEIGHT = 40;
 const CELL_PADDING_RATIO = 0.15;
 
 /**
- * Represents a single desktop icon or widget
- * 
- * Two modes:
- * - Icon (default): Flat, simple, traditional desktop icon
- * - Widget: Has elevation/shadow, can notify, "floats" above desktop
+ * Represents a single desktop icon
  */
 const DesktopIcon = GObject.registerClass(
     class DesktopIcon extends St.BoxLayout {
@@ -88,21 +85,9 @@ const DesktopIcon = GObject.registerClass(
             this._selected = false;
             this._dragging = false;
 
-            // Check if this is a widget (has special capabilities)
-            this._isWidget = extension._isIconWidget(fileName);
-
-            // Apply widget or icon styles
-            if (this._isWidget) {
-                this.add_style_class_name('widget-mode');
-                this._applyElevationStyle();
-                this._applyBackgroundStyle();
-            } else {
-                // Normal icons are flat with no background
-                this.add_style_class_name('elevation-0');
-                this.add_style_class_name('bg-none');
-                this._elevation = 0;
-                this._background = 'none';
-            }
+            // Apply elevation and background styles
+            this._applyElevationStyle();
+            this._applyBackgroundStyle();
 
             // Icon container
             this._iconContainer = new St.Bin({
@@ -126,43 +111,7 @@ const DesktopIcon = GObject.registerClass(
             this._setupEvents();
         }
 
-        // Check if this icon is in widget mode
-        get isWidget() {
-            return this._isWidget || false;
-        }
-
-        // Convert this icon to a widget
-        setWidgetMode(enabled) {
-            this._isWidget = enabled;
-            this._extension._setIconWidget(this._fileName, enabled);
-
-            if (enabled) {
-                this.add_style_class_name('widget-mode');
-                this._applyElevationStyle();
-                this._applyBackgroundStyle();
-            } else {
-                this.remove_style_class_name('widget-mode');
-                // Reset to flat icon
-                for (let i = 0; i <= 3; i++) {
-                    this.remove_style_class_name(`elevation-${i}`);
-                }
-                this.add_style_class_name('elevation-0');
-                const bgClasses = ['bg-none', 'bg-light', 'bg-dark', 'bg-accent'];
-                for (const cls of bgClasses) {
-                    this.remove_style_class_name(cls);
-                }
-                this.add_style_class_name('bg-none');
-                this._elevation = 0;
-                this._background = 'none';
-                // Remove any badge
-                this._hideBadge();
-            }
-        }
-
         _applyElevationStyle() {
-            // Only apply if widget
-            if (!this._isWidget) return;
-
             // Remove any existing elevation classes
             for (let i = 0; i <= 3; i++) {
                 this.remove_style_class_name(`elevation-${i}`);
@@ -174,9 +123,6 @@ const DesktopIcon = GObject.registerClass(
         }
 
         _applyBackgroundStyle() {
-            // Only apply if widget
-            if (!this._isWidget) return;
-
             // Remove any existing background classes
             const bgClasses = ['bg-none', 'bg-light', 'bg-dark', 'bg-accent'];
             for (const cls of bgClasses) {
@@ -189,10 +135,6 @@ const DesktopIcon = GObject.registerClass(
         }
 
         setElevation(level) {
-            // Only widgets can have elevation > 0
-            if (!this._isWidget && level > 0) {
-                this.setWidgetMode(true);
-            }
             for (let i = 0; i <= 3; i++) {
                 this.remove_style_class_name(`elevation-${i}`);
             }
@@ -207,404 +149,6 @@ const DesktopIcon = GObject.registerClass(
             }
             this.add_style_class_name(`bg-${style}`);
             this._background = style;
-        }
-
-        // ===== Notification System =====
-        // Multi-level notification system from silent to critical
-        // Only widgets can send notifications (popups). Normal icons can only have badges.
-
-        /**
-         * Notification levels (from least to most intrusive):
-         * - 'silent'   : Only shows badge, no animation (check icon manually)
-         * - 'subtle'   : Badge + soft glow in place (doesn't move)
-         * - 'normal'   : Small popup near the icon position
-         * - 'attention': Popup moves to center of screen
-         * - 'critical' : Center popup with pulse animation
-         */
-
-        /**
-         * Make this icon notify with configurable intrusiveness
-         * @param {Object} options - Notification options
-         * @param {string} options.message - Optional message to show
-         * @param {string} options.level - 'silent', 'subtle', 'normal', 'attention', 'critical'
-         * @param {number} options.duration - Auto-dismiss time in ms (0 = manual dismiss)
-         * @param {number} options.badgeCount - Number to show in badge (0 = no badge number)
-         * @param {string} options.badgeIcon - Icon name for badge (optional)
-         */
-        notify(options = {}) {
-            const {
-                message = null,
-                level = 'normal',
-                duration = 5000,
-                badgeCount = 0,
-                badgeIcon = null,
-            } = options;
-
-            // Map old urgency values to new levels for backward compatibility
-            let actualLevel = level;
-            if (level === 'low') actualLevel = 'subtle';
-            if (level === 'high') actualLevel = 'attention';
-
-            // Check Do Not Disturb mode - force everything to silent
-            const dnd = this._extension._settings.get_boolean('do-not-disturb');
-            if (dnd && actualLevel !== 'silent') {
-                actualLevel = 'silent';
-            }
-
-            // Check max notification level setting
-            const maxLevel = this._extension._settings.get_string('max-notification-level');
-            const levelOrder = ['silent', 'subtle', 'normal', 'attention', 'critical'];
-            const maxIndex = levelOrder.indexOf(maxLevel);
-            const currentIndex = levelOrder.indexOf(actualLevel);
-            if (currentIndex > maxIndex) {
-                actualLevel = maxLevel;
-            }
-
-            // Non-widgets can only show badges (silent/subtle)
-            if (!this._isWidget && !['silent', 'subtle'].includes(actualLevel)) {
-                // Auto-convert to widget if trying to send popup notification
-                this.setWidgetMode(true);
-            }
-
-            // Don't stack notifications - update existing one
-            if (this._isNotifying && actualLevel !== 'silent') {
-                this.dismissNotification();
-            }
-
-            this._isNotifying = true;
-            this._notifyLevel = actualLevel;
-
-            // Handle based on level
-            switch (actualLevel) {
-                case 'silent':
-                    this._notifySilent(badgeCount, badgeIcon, duration);
-                    break;
-                case 'subtle':
-                    this._notifySubtle(message, badgeCount, duration);
-                    break;
-                case 'normal':
-                    this._notifyNormal(message, badgeCount, duration);
-                    break;
-                case 'attention':
-                    this._notifyAttention(message, badgeCount, duration);
-                    break;
-                case 'critical':
-                    this._notifyCritical(message, badgeCount, duration);
-                    break;
-                default:
-                    this._notifyNormal(message, badgeCount, duration);
-            }
-        }
-
-        // Level 1: Silent - Just badge, no visual disturbance
-        _notifySilent(badgeCount, badgeIcon, duration) {
-            this._showBadge(badgeCount, badgeIcon, 'silent');
-
-            if (duration > 0) {
-                this._notifyTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, duration, () => {
-                    this._hideBadge();
-                    this._isNotifying = false;
-                    this._notifyTimeoutId = null;
-                    return GLib.SOURCE_REMOVE;
-                });
-            }
-        }
-
-        // Level 2: Subtle - Badge + soft glow effect in place
-        _notifySubtle(message, badgeCount, duration) {
-            this._showBadge(badgeCount, null, 'subtle');
-
-            // Add glow effect
-            this.add_style_class_name('notify-glow');
-
-            // Store message for tooltip/hover
-            this._pendingMessage = message;
-
-            if (duration > 0) {
-                this._notifyTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, duration, () => {
-                    this.dismissNotification();
-                    return GLib.SOURCE_REMOVE;
-                });
-            }
-        }
-
-        // Level 3: Normal - Small popup near the icon
-        _notifyNormal(message, badgeCount, duration) {
-            const [absX, absY] = this.get_transformed_position();
-
-            this._createNotifyPopup(message, 'normal', badgeCount);
-
-            // Position near the icon (slightly above and to the right)
-            const popupX = absX + this.width / 2;
-            const popupY = absY - 20;
-
-            this._notifyClone.set_position(absX, absY);
-            this._notifyClone.set_scale(0.5, 0.5);
-            this._notifyClone.set_opacity(0);
-
-            Main.uiGroup.add_child(this._notifyClone);
-
-            // Animate to position near icon
-            this._notifyClone.ease({
-                x: popupX,
-                y: popupY,
-                scale_x: 1,
-                scale_y: 1,
-                opacity: 255,
-                duration: 200,
-                mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-            });
-
-            this._setupNotifyInteraction(duration);
-        }
-
-        // Level 4: Attention - Popup at center of screen
-        _notifyAttention(message, badgeCount, duration) {
-            const [absX, absY] = this.get_transformed_position();
-
-            this._createNotifyPopup(message, 'attention', badgeCount);
-
-            // Calculate center of screen
-            const monitor = Main.layoutManager.primaryMonitor;
-            const targetX = monitor.x + (monitor.width - this.width) / 2;
-            const targetY = monitor.y + (monitor.height - this.height) / 2 - 50;
-
-            this._notifyClone.set_position(absX, absY);
-            this._notifyClone.set_scale(0.8, 0.8);
-            this._notifyClone.set_opacity(0);
-
-            Main.uiGroup.add_child(this._notifyClone);
-
-            // Hide original icon
-            this.set_opacity(100);
-
-            // Animate to center with scale
-            this._notifyClone.ease({
-                x: targetX,
-                y: targetY,
-                scale_x: 1.3,
-                scale_y: 1.3,
-                opacity: 255,
-                duration: 300,
-                mode: Clutter.AnimationMode.EASE_OUT_BACK,
-            });
-
-            this._setupNotifyInteraction(duration);
-        }
-
-        // Level 5: Critical - Center popup with pulse
-        _notifyCritical(message, badgeCount, duration) {
-            const [absX, absY] = this.get_transformed_position();
-
-            this._createNotifyPopup(message, 'critical', badgeCount);
-
-            // Calculate center of screen
-            const monitor = Main.layoutManager.primaryMonitor;
-            const targetX = monitor.x + (monitor.width - this.width) / 2;
-            const targetY = monitor.y + (monitor.height - this.height) / 2 - 50;
-
-            this._notifyClone.set_position(absX, absY);
-            this._notifyClone.set_scale(0.8, 0.8);
-            this._notifyClone.set_opacity(0);
-
-            Main.uiGroup.add_child(this._notifyClone);
-
-            // Hide original icon
-            this.set_opacity(50);
-
-            // Animate to center with bigger scale
-            this._notifyClone.ease({
-                x: targetX,
-                y: targetY,
-                scale_x: 1.5,
-                scale_y: 1.5,
-                opacity: 255,
-                duration: 300,
-                mode: Clutter.AnimationMode.EASE_OUT_BACK,
-                onComplete: () => {
-                    this._startPulseAnimation();
-                }
-            });
-
-            // Critical: default to manual dismiss (duration 0)
-            this._setupNotifyInteraction(duration === 5000 ? 0 : duration);
-        }
-
-        // Helper: Create the popup widget
-        _createNotifyPopup(message, level, badgeCount) {
-            this._notifyClone = new St.BoxLayout({
-                vertical: true,
-                reactive: true,
-                style_class: `desktop-icon notifying level-${level}`,
-                x_align: Clutter.ActorAlign.CENTER,
-            });
-
-            // Apply elevation based on level
-            const elevationMap = { normal: 2, attention: 3, critical: 3 };
-            this._notifyClone.add_style_class_name(`elevation-${elevationMap[level] || 2}`);
-            this._notifyClone.add_style_class_name(`bg-${level === 'critical' ? 'accent' : 'dark'}`);
-
-            // Clone icon
-            const iconClone = new St.Icon({
-                gicon: this._icon.gicon,
-                icon_size: this._iconSize,
-                style_class: 'desktop-icon-image',
-            });
-            const iconContainer = new St.Bin({
-                style_class: 'desktop-icon-container',
-                x_align: Clutter.ActorAlign.CENTER,
-            });
-            iconContainer.set_child(iconClone);
-            this._notifyClone.add_child(iconContainer);
-
-            // Clone label
-            const labelClone = new St.Label({
-                text: this._label.text,
-                style_class: 'desktop-icon-label',
-                x_align: Clutter.ActorAlign.CENTER,
-            });
-            this._notifyClone.add_child(labelClone);
-
-            // Add message if provided
-            if (message) {
-                const msgLabel = new St.Label({
-                    text: message,
-                    style_class: 'desktop-icon-notify-message',
-                    x_align: Clutter.ActorAlign.CENTER,
-                });
-                this._notifyClone.add_child(msgLabel);
-                this._notifyClone.add_style_class_name('has-message');
-            }
-
-            // Add badge
-            if (badgeCount > 0 || level === 'critical') {
-                const badge = new St.Label({
-                    text: badgeCount > 0 ? String(badgeCount) : '!',
-                    style_class: `desktop-icon-badge badge-${level}`,
-                });
-                this._notifyClone.add_child(badge);
-            }
-        }
-
-        // Helper: Show badge on the icon itself
-        _showBadge(count, icon, level) {
-            // Remove existing badge
-            this._hideBadge();
-
-            if (count > 0 || level === 'subtle') {
-                this._badge = new St.Label({
-                    text: count > 0 ? String(count > 99 ? '99+' : count) : '•',
-                    style_class: `desktop-icon-badge badge-${level}`,
-                });
-                // Position badge at top-right of icon
-                this._badge.set_position(this.width - 20, -5);
-                this.add_child(this._badge);
-            }
-        }
-
-        _hideBadge() {
-            if (this._badge) {
-                this._badge.destroy();
-                this._badge = null;
-            }
-        }
-
-        // Helper: Setup click to dismiss and auto-timeout
-        _setupNotifyInteraction(duration) {
-            // Click to dismiss and optionally open
-            this._notifyClickId = this._notifyClone.connect('button-press-event', (actor, event) => {
-                const button = event.get_button();
-                this.dismissNotification();
-                if (button === 1) {
-                    // Left click - open the file
-                    this._open();
-                }
-                return Clutter.EVENT_STOP;
-            });
-
-            // Auto-dismiss after duration
-            if (duration > 0) {
-                this._notifyTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, duration, () => {
-                    this.dismissNotification();
-                    this._notifyTimeoutId = null;
-                    return GLib.SOURCE_REMOVE;
-                });
-            }
-        }
-
-        _startPulseAnimation() {
-            if (!this._notifyClone) return;
-
-            // Subtle scale pulse
-            this._notifyClone.ease({
-                scale_x: 1.6,
-                scale_y: 1.6,
-                duration: 600,
-                mode: Clutter.AnimationMode.EASE_IN_OUT_SINE,
-                onComplete: () => {
-                    if (!this._notifyClone || !this._isNotifying) return;
-                    this._notifyClone.ease({
-                        scale_x: 1.5,
-                        scale_y: 1.5,
-                        duration: 600,
-                        mode: Clutter.AnimationMode.EASE_IN_OUT_SINE,
-                        onComplete: () => {
-                            if (this._isNotifying) {
-                                this._startPulseAnimation();
-                            }
-                        }
-                    });
-                }
-            });
-        }
-
-        dismissNotification() {
-            if (!this._isNotifying) return;
-
-            this._isNotifying = false;
-
-            // Cancel timeout
-            if (this._notifyTimeoutId) {
-                GLib.source_remove(this._notifyTimeoutId);
-                this._notifyTimeoutId = null;
-            }
-
-            // Disconnect click handler
-            if (this._notifyClickId && this._notifyClone) {
-                this._notifyClone.disconnect(this._notifyClickId);
-                this._notifyClickId = null;
-            }
-
-            // Get original position
-            const [absX, absY] = this.get_transformed_position();
-
-            if (this._notifyClone) {
-                // Animate back to original position
-                this._notifyClone.ease({
-                    x: absX,
-                    y: absY,
-                    scale_x: 1,
-                    scale_y: 1,
-                    opacity: 0,
-                    duration: 250,
-                    mode: Clutter.AnimationMode.EASE_IN_QUAD,
-                    onComplete: () => {
-                        if (this._notifyClone) {
-                            this._notifyClone.destroy();
-                            this._notifyClone = null;
-                        }
-                        // Show original icon
-                        this.set_opacity(255);
-                    }
-                });
-            } else {
-                this.set_opacity(255);
-            }
-        }
-
-        // Check if this icon is currently notifying
-        get isNotifying() {
-            return this._isNotifying || false;
         }
 
         _createIcon() {
@@ -724,8 +268,21 @@ const DesktopIcon = GObject.registerClass(
             // Close any existing menu
             this._closeContextMenu();
 
-            // Create popup menu
-            this._contextMenu = new PopupMenu.PopupMenu(this, 0.5, St.Side.TOP);
+            // Get mouse position FIRST
+            const [mouseX, mouseY] = event.get_coords();
+
+            // Create a dummy actor at mouse position to anchor the menu
+            this._menuAnchor = new St.Widget({
+                x: mouseX,
+                y: mouseY,
+                width: 1,
+                height: 1,
+                reactive: false,
+            });
+            Main.uiGroup.add_child(this._menuAnchor);
+
+            // Create popup menu anchored to dummy widget
+            this._contextMenu = new PopupMenu.PopupMenu(this._menuAnchor, 0, St.Side.TOP);
 
             // Open item
             const openItem = new PopupMenu.PopupMenuItem('Open');
@@ -736,320 +293,336 @@ const DesktopIcon = GObject.registerClass(
 
             this._contextMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-            // Icon Size submenu (in cells)
+            // Icon Size - Submenu with Visual Grid Selector (4x4)
             const sizeSubMenu = new PopupMenu.PopupSubMenuMenuItem('Icon Size');
 
-            const currentCellSize = this._extension._getCustomIconCellSize(this._fileName);
+            const sizeItem = new PopupMenu.PopupBaseMenuItem({ reactive: false });
 
-            // Square sizes
-            const squareSizes = [
-                { key: '1x1', label: '1×1' },
-                { key: '2x2', label: '2×2' },
-                { key: '3x3', label: '3×3' },
-                { key: '4x4', label: '4×4' },
-            ];
+            // Grid container (4x4) - centered
+            const gridSize = 4;
+            const cellSize = 24;
+            const currentSize = this._cellSize || { cols: 1, rows: 1 };
 
-            // Wide sizes (horizontal)
-            const wideSizes = [
-                { key: '2x1', label: '2×1 (wide)' },
-                { key: '3x1', label: '3×1 (wide)' },
-                { key: '4x1', label: '4×1 (banner)' },
-                { key: '3x2', label: '3×2 (wide)' },
-                { key: '4x2', label: '4×2 (wide)' },
-            ];
-
-            // Tall sizes (vertical)
-            const tallSizes = [
-                { key: '1x2', label: '1×2 (tall)' },
-                { key: '1x3', label: '1×3 (tall)' },
-                { key: '1x4', label: '1×4 (tower)' },
-                { key: '2x3', label: '2×3 (tall)' },
-                { key: '2x4', label: '2×4 (tall)' },
-            ];
-
-            // Add square sizes
-            for (const size of squareSizes) {
-                const item = new PopupMenu.PopupMenuItem(size.label);
-                if (currentCellSize === size.key) {
-                    item.setOrnament(PopupMenu.Ornament.CHECK);
-                }
-                item.connect('activate', () => {
-                    this._extension._setCustomIconCellSize(this._fileName, size.key);
-                    this._cellSize = ICON_CELL_SIZES[size.key];
-                    const newIconSize = this._extension._getIconPixelSize(this._cellSize);
-                    this.updateSize(newIconSize);
-                });
-                sizeSubMenu.menu.addMenuItem(item);
-            }
-
-            sizeSubMenu.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-            // Wide submenu
-            const wideSubMenu = new PopupMenu.PopupSubMenuMenuItem('↔ Wide');
-            for (const size of wideSizes) {
-                const item = new PopupMenu.PopupMenuItem(size.label);
-                if (currentCellSize === size.key) {
-                    item.setOrnament(PopupMenu.Ornament.CHECK);
-                }
-                item.connect('activate', () => {
-                    this._extension._setCustomIconCellSize(this._fileName, size.key);
-                    this._cellSize = ICON_CELL_SIZES[size.key];
-                    const newIconSize = this._extension._getIconPixelSize(this._cellSize);
-                    this.updateSize(newIconSize);
-                });
-                wideSubMenu.menu.addMenuItem(item);
-            }
-            sizeSubMenu.menu.addMenuItem(wideSubMenu);
-
-            // Tall submenu
-            const tallSubMenu = new PopupMenu.PopupSubMenuMenuItem('↕ Tall');
-            for (const size of tallSizes) {
-                const item = new PopupMenu.PopupMenuItem(size.label);
-                if (currentCellSize === size.key) {
-                    item.setOrnament(PopupMenu.Ornament.CHECK);
-                }
-                item.connect('activate', () => {
-                    this._extension._setCustomIconCellSize(this._fileName, size.key);
-                    this._cellSize = ICON_CELL_SIZES[size.key];
-                    const newIconSize = this._extension._getIconPixelSize(this._cellSize);
-                    this.updateSize(newIconSize);
-                });
-                tallSubMenu.menu.addMenuItem(item);
-            }
-            sizeSubMenu.menu.addMenuItem(tallSubMenu);
-
-            // Reset to default option
-            sizeSubMenu.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-            const resetItem = new PopupMenu.PopupMenuItem('Reset to Default (1×1)');
-            resetItem.connect('activate', () => {
-                this._extension._removeCustomIconCellSize(this._fileName);
-                this._cellSize = { cols: 1, rows: 1 };
-                const baseSize = this._extension._getBaseIconSize();
-                this.updateSize(baseSize);
+            const gridWrapper = new St.BoxLayout({
+                x_expand: true,
+                x_align: Clutter.ActorAlign.CENTER,
             });
-            sizeSubMenu.menu.addMenuItem(resetItem);
 
+            const gridContainer = new St.Widget({
+                style: `width: ${gridSize * cellSize}px; height: ${gridSize * cellSize}px;`,
+                reactive: true,
+            });
+
+            // Create grid cells
+            const gridCells = [];
+            for (let row = 0; row < gridSize; row++) {
+                gridCells[row] = [];
+                for (let col = 0; col < gridSize; col++) {
+                    const cell = new St.Widget({
+                        style: 'background-color: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 2px;',
+                        width: cellSize - 2,
+                        height: cellSize - 2,
+                        x: col * cellSize,
+                        y: row * cellSize,
+                    });
+                    gridCells[row][col] = cell;
+                    gridContainer.add_child(cell);
+                }
+            }
+
+            // Highlight cells function
+            const highlightCells = (cols, rows, style) => {
+                for (let r = 0; r < gridSize; r++) {
+                    for (let c = 0; c < gridSize; c++) {
+                        if (c < cols && r < rows) {
+                            gridCells[r][c].style = style;
+                        } else {
+                            gridCells[r][c].style = 'background-color: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 2px;';
+                        }
+                    }
+                }
+            };
+
+            // Show current size
+            highlightCells(currentSize.cols, currentSize.rows, 'background-color: rgba(53,132,228,0.5); border: 1px solid rgba(53,132,228,0.8); border-radius: 2px;');
+
+            // Track hover
+            gridContainer.connect('motion-event', (actor, event) => {
+                const [x, y] = event.get_coords();
+                const [actorX, actorY] = actor.get_transformed_position();
+                const relX = x - actorX;
+                const relY = y - actorY;
+
+                const hoverCol = Math.floor(relX / cellSize) + 1;
+                const hoverRow = Math.floor(relY / cellSize) + 1;
+
+                if (hoverCol >= 1 && hoverCol <= gridSize && hoverRow >= 1 && hoverRow <= gridSize) {
+                    highlightCells(hoverCol, hoverRow, 'background-color: rgba(53,132,228,0.7); border: 1px solid rgba(53,132,228,1); border-radius: 2px;');
+                }
+                return Clutter.EVENT_PROPAGATE;
+            });
+
+            // Reset on leave
+            gridContainer.connect('leave-event', () => {
+                highlightCells(currentSize.cols, currentSize.rows, 'background-color: rgba(53,132,228,0.5); border: 1px solid rgba(53,132,228,0.8); border-radius: 2px;');
+                return Clutter.EVENT_PROPAGATE;
+            });
+
+            // Click to select
+            gridContainer.connect('button-press-event', (actor, event) => {
+                if (event.get_button() !== 1) return Clutter.EVENT_PROPAGATE;
+
+                const [x, y] = event.get_coords();
+                const [actorX, actorY] = actor.get_transformed_position();
+                const relX = x - actorX;
+                const relY = y - actorY;
+
+                const selCol = Math.floor(relX / cellSize) + 1;
+                const selRow = Math.floor(relY / cellSize) + 1;
+
+                if (selCol >= 1 && selCol <= gridSize && selRow >= 1 && selRow <= gridSize) {
+                    const sizeKey = `${selCol}x${selRow}`;
+                    this._extension._setCustomIconCellSize(this._fileName, sizeKey);
+                    this._cellSize = { cols: selCol, rows: selRow };
+                    const newIconSize = this._extension._getIconPixelSize(this._cellSize);
+                    this.updateSize(newIconSize);
+                    this._closeContextMenu();
+                }
+                return Clutter.EVENT_STOP;
+            });
+
+            gridWrapper.add_child(gridContainer);
+            sizeItem.add_child(gridWrapper);
+            sizeSubMenu.menu.addMenuItem(sizeItem);
             this._contextMenu.addMenuItem(sizeSubMenu);
 
-            this._contextMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+            // Elevation submenu with visual selector
+            const elevationSubMenu = new PopupMenu.PopupSubMenuMenuItem('Elevation');
+            const elevationItem = new PopupMenu.PopupBaseMenuItem({ reactive: false });
 
-            // Widget mode toggle
-            const widgetItem = new PopupMenu.PopupMenuItem(
-                this._isWidget ? '📌 Convert to Icon (flat)' : '🔮 Convert to Widget'
-            );
-            widgetItem.connect('activate', () => {
-                this.setWidgetMode(!this._isWidget);
+            const elevationWrapper = new St.BoxLayout({
+                vertical: true,
+                x_expand: true,
             });
-            this._contextMenu.addMenuItem(widgetItem);
 
-            // Only show these options for widgets
-            if (this._isWidget) {
-                // Elevation submenu (visual z-depth) - only for widgets
-                const elevationSubMenu = new PopupMenu.PopupSubMenuMenuItem('↕️ Elevation');
-                const currentElevation = this._elevation || 0;
-                const elevations = [
-                    { level: 0, label: 'Flat (no shadow)' },
-                    { level: 1, label: 'Low' },
-                    { level: 2, label: 'Medium' },
-                    { level: 3, label: 'High (floating)' },
-                ];
+            // Tooltip label for elevation
+            const elevationTooltip = new St.Label({
+                text: '',
+                style: 'font-size: 0.9em; color: rgba(255,255,255,0.7); margin-bottom: 6px; min-height: 16px;',
+                x_align: Clutter.ActorAlign.CENTER,
+            });
+            elevationWrapper.add_child(elevationTooltip);
 
-                for (const elev of elevations) {
-                    const item = new PopupMenu.PopupMenuItem(elev.label);
-                    if (currentElevation === elev.level) {
-                        item.setOrnament(PopupMenu.Ornament.CHECK);
+            const elevationRow = new St.BoxLayout({
+                style: 'spacing: 8px;',
+                x_expand: true,
+                x_align: Clutter.ActorAlign.CENTER,
+            });
+
+            const currentElevation = this._elevation || 0;
+            const elevations = [
+                { level: 0, shadow: 'none', tooltip: 'Flat' },
+                { level: 1, shadow: '0 1px 3px rgba(0,0,0,0.3)', tooltip: 'Low' },
+                { level: 2, shadow: '0 3px 8px rgba(0,0,0,0.4)', tooltip: 'Medium' },
+                { level: 3, shadow: '0 6px 16px rgba(0,0,0,0.5)', tooltip: 'High' },
+            ];
+
+            const elevBoxSize = 36;
+            for (const elev of elevations) {
+                const isSelected = currentElevation === elev.level;
+                const box = new St.Button({
+                    style: `
+                        width: ${elevBoxSize}px;
+                        height: ${elevBoxSize}px;
+                        background-color: rgba(255,255,255,0.15);
+                        border-radius: 6px;
+                        border: 2px solid ${isSelected ? 'rgba(53,132,228,1)' : 'rgba(255,255,255,0.2)'};
+                        box-shadow: ${elev.shadow};
+                    `,
+                    x_expand: true,
+                });
+                box.connect('clicked', () => {
+                    this._extension._setIconElevation(this._fileName, elev.level);
+                    this.setElevation(elev.level);
+                    this._closeContextMenu();
+                });
+                box.connect('enter-event', () => {
+                    elevationTooltip.text = elev.tooltip;
+                    if (currentElevation !== elev.level) {
+                        box.style = `
+                            width: ${elevBoxSize}px;
+                            height: ${elevBoxSize}px;
+                            background-color: rgba(255,255,255,0.25);
+                            border-radius: 6px;
+                            border: 2px solid rgba(53,132,228,0.7);
+                            box-shadow: ${elev.shadow};
+                        `;
                     }
-                    item.connect('activate', () => {
-                        this._extension._setIconElevation(this._fileName, elev.level);
-                        this.setElevation(elev.level);
-                    });
-                    elevationSubMenu.menu.addMenuItem(item);
-                }
-                this._contextMenu.addMenuItem(elevationSubMenu);
+                    return Clutter.EVENT_PROPAGATE;
+                });
+                box.connect('leave-event', () => {
+                    elevationTooltip.text = '';
+                    const sel = currentElevation === elev.level;
+                    box.style = `
+                        width: ${elevBoxSize}px;
+                        height: ${elevBoxSize}px;
+                        background-color: rgba(255,255,255,0.15);
+                        border-radius: 6px;
+                        border: 2px solid ${sel ? 'rgba(53,132,228,1)' : 'rgba(255,255,255,0.2)'};
+                        box-shadow: ${elev.shadow};
+                    `;
+                    return Clutter.EVENT_PROPAGATE;
+                });
+                elevationRow.add_child(box);
+            }
 
-                // Background submenu - only for widgets
-                const bgSubMenu = new PopupMenu.PopupSubMenuMenuItem('🎨 Background');
-                const currentBg = this._background || 'none';
-                const backgrounds = [
-                    { key: 'none', label: 'None' },
-                    { key: 'light', label: 'Light (frosted)' },
-                    { key: 'dark', label: 'Dark' },
-                    { key: 'accent', label: 'Accent color' },
-                ];
+            elevationWrapper.add_child(elevationRow);
+            elevationItem.add_child(elevationWrapper);
+            elevationSubMenu.menu.addMenuItem(elevationItem);
+            this._contextMenu.addMenuItem(elevationSubMenu);
 
-                for (const bg of backgrounds) {
-                    const item = new PopupMenu.PopupMenuItem(bg.label);
-                    if (currentBg === bg.key) {
-                        item.setOrnament(PopupMenu.Ornament.CHECK);
+            // Background submenu with visual selector
+            const bgSubMenu = new PopupMenu.PopupSubMenuMenuItem('Background');
+            const bgItem = new PopupMenu.PopupBaseMenuItem({ reactive: false });
+
+            const bgWrapper = new St.BoxLayout({
+                vertical: true,
+                x_expand: true,
+            });
+
+            // Tooltip label for background
+            const bgTooltip = new St.Label({
+                text: '',
+                style: 'font-size: 0.9em; color: rgba(255,255,255,0.7); margin-bottom: 6px; min-height: 16px;',
+                x_align: Clutter.ActorAlign.CENTER,
+            });
+            bgWrapper.add_child(bgTooltip);
+
+            const bgRow = new St.BoxLayout({
+                style: 'spacing: 8px;',
+                x_expand: true,
+                x_align: Clutter.ActorAlign.CENTER,
+            });
+
+            const currentBg = this._background || 'none';
+            const backgrounds = [
+                { key: 'none', bg: 'transparent', border: 'rgba(255,255,255,0.3)', tooltip: 'None' },
+                { key: 'light', bg: 'rgba(255,255,255,0.2)', border: 'rgba(255,255,255,0.4)', tooltip: 'Light' },
+                { key: 'dark', bg: 'rgba(0,0,0,0.4)', border: 'rgba(0,0,0,0.6)', tooltip: 'Dark' },
+                { key: 'accent', bg: 'rgba(53,132,228,0.4)', border: 'rgba(53,132,228,0.7)', tooltip: 'Accent' },
+            ];
+
+            const bgBoxSize = 36;
+            for (const bg of backgrounds) {
+                const isSelected = currentBg === bg.key;
+                const box = new St.Button({
+                    style: `
+                        width: ${bgBoxSize}px;
+                        height: ${bgBoxSize}px;
+                        background-color: ${bg.bg};
+                        border-radius: 6px;
+                        border: 2px solid ${isSelected ? 'rgba(53,132,228,1)' : bg.border};
+                    `,
+                    x_expand: true,
+                });
+                box.connect('clicked', () => {
+                    this._extension._setIconBackground(this._fileName, bg.key);
+                    this.setBackground(bg.key);
+                    this._closeContextMenu();
+                });
+                box.connect('enter-event', () => {
+                    bgTooltip.text = bg.tooltip;
+                    if (currentBg !== bg.key) {
+                        box.style = `
+                            width: ${bgBoxSize}px;
+                            height: ${bgBoxSize}px;
+                            background-color: ${bg.bg};
+                            border-radius: 6px;
+                            border: 2px solid rgba(53,132,228,0.7);
+                        `;
                     }
-                    item.connect('activate', () => {
-                        this._extension._setIconBackground(this._fileName, bg.key);
-                        this.setBackground(bg.key);
-                    });
-                    bgSubMenu.menu.addMenuItem(item);
-                }
-                this._contextMenu.addMenuItem(bgSubMenu);
-
-                this._contextMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-                // Test Notification submenu - only for widgets
-                const notifySubMenu = new PopupMenu.PopupSubMenuMenuItem('🔔 Test Notification');
-
-                // Silent - just badge
-                const notifySilent = new PopupMenu.PopupMenuItem('🔕 Silent (badge only)');
-                notifySilent.connect('activate', () => {
-                    this.notify({
-                        level: 'silent',
-                        badgeCount: 3,
-                        duration: 10000,
-                    });
+                    return Clutter.EVENT_PROPAGATE;
                 });
-                notifySubMenu.menu.addMenuItem(notifySilent);
-
-                // Subtle - glow in place
-                const notifySubtle = new PopupMenu.PopupMenuItem('✨ Subtle (glow)');
-                notifySubtle.connect('activate', () => {
-                    this.notify({
-                        message: 'Something happened...',
-                        level: 'subtle',
-                        badgeCount: 1,
-                        duration: 5000,
-                    });
+                box.connect('leave-event', () => {
+                    bgTooltip.text = '';
+                    const sel = currentBg === bg.key;
+                    box.style = `
+                        width: ${bgBoxSize}px;
+                        height: ${bgBoxSize}px;
+                        background-color: ${bg.bg};
+                        border-radius: 6px;
+                        border: 2px solid ${sel ? 'rgba(53,132,228,1)' : bg.border};
+                    `;
+                    return Clutter.EVENT_PROPAGATE;
                 });
-                notifySubMenu.menu.addMenuItem(notifySubtle);
+                bgRow.add_child(box);
+            }
 
-                // Normal - popup near icon
-                const notifyNormal = new PopupMenu.PopupMenuItem('📍 Normal (near icon)');
-                notifyNormal.connect('activate', () => {
-                    this.notify({
-                        message: 'New update available',
-                        level: 'normal',
-                        duration: 4000,
-                    });
-                });
-                notifySubMenu.menu.addMenuItem(notifyNormal);
-
-                // Attention - center screen
-                const notifyAttention = new PopupMenu.PopupMenuItem('👀 Attention (center)');
-                notifyAttention.connect('activate', () => {
-                    this.notify({
-                        message: 'This needs your attention!',
-                        level: 'attention',
-                        badgeCount: 5,
-                        duration: 5000,
-                    });
-                });
-                notifySubMenu.menu.addMenuItem(notifyAttention);
-
-                // Critical - center + pulse
-                const notifyCritical = new PopupMenu.PopupMenuItem('🚨 Critical (urgent)');
-                notifyCritical.connect('activate', () => {
-                    this.notify({
-                        message: '⚠️ Critical alert! Click to dismiss.',
-                        level: 'critical',
-                        duration: 0, // Manual dismiss
-                    });
-                });
-                notifySubMenu.menu.addMenuItem(notifyCritical);
-
-                this._contextMenu.addMenuItem(notifySubMenu);
-            } // End of widget-only options
+            bgWrapper.add_child(bgRow);
+            bgItem.add_child(bgWrapper);
+            bgSubMenu.menu.addMenuItem(bgItem);
+            this._contextMenu.addMenuItem(bgSubMenu);
 
             this._contextMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-            // Delete item
-            const deleteItem = new PopupMenu.PopupMenuItem('Move to Trash');
+            // Remove item with confirmation dialog
+            const deleteItem = new PopupMenu.PopupMenuItem('Remove...');
             deleteItem.connect('activate', () => {
-                this._moveToTrash();
+                this._showRemoveConfirmDialog();
             });
             this._contextMenu.addMenuItem(deleteItem);
 
-            // Add to UI group (above windows)
+            // Add menu to UI group (above windows)
             Main.uiGroup.add_child(this._contextMenu.actor);
 
-            // Get mouse position in stage coordinates
-            const [stageX, stageY] = event.get_coords();
-
-            // Get work area (excludes panels/dash)
+            // Get screen bounds
             const monitor = Main.layoutManager.primaryMonitor;
-            const workArea = Main.layoutManager.getWorkAreaForMonitor(monitor.index);
+            const margin = 5;
+            const screenRight = monitor.x + monitor.width - margin;
+            const screenBottom = monitor.y + monitor.height - margin;
+            const screenTop = monitor.y + margin;
+            const screenLeft = monitor.x + margin;
 
-            // Open menu first to get its size
+            // Open menu to get its size
             this._contextMenu.open();
 
-            // Get menu dimensions
             const menuWidth = this._contextMenu.actor.width;
             const menuHeight = this._contextMenu.actor.height;
 
-            // Calculate position according to rules:
-            // 1. If menu fits below mouse: top-left corner at mouse position
-            // 2. If menu doesn't fit below but fits above: bottom-left corner at mouse position
-            // 3. If menu doesn't fit either way: center vertically on mouse position
+            // Position: top-left corner at mouse position
+            let menuPosX = mouseX;
+            let menuPosY = mouseY;
 
-            let menuX = stageX;
-            let menuY;
-
-            const spaceBelow = (workArea.y + workArea.height) - stageY;
-            const spaceAbove = stageY - workArea.y;
-
-            if (menuHeight <= spaceBelow) {
-                // Case 1: Fits below - top-left corner at mouse
-                menuY = stageY;
-            } else if (menuHeight <= spaceAbove) {
-                // Case 2: Fits above - bottom-left corner at mouse
-                menuY = stageY - menuHeight;
-            } else {
-                // Case 3: Doesn't fit either way - center on mouse
-                menuY = stageY - menuHeight / 2;
+            // If menu goes off right edge, flip to left of cursor
+            if (menuPosX + menuWidth > screenRight) {
+                menuPosX = mouseX - menuWidth;
             }
+            // Clamp horizontal
+            menuPosX = Math.max(screenLeft, Math.min(menuPosX, screenRight - menuWidth));
 
-            // Handle horizontal positioning
-            const spaceRight = (workArea.x + workArea.width) - stageX;
-            if (menuWidth > spaceRight) {
-                // Open to the left of cursor (right edge at mouse)
-                menuX = stageX - menuWidth;
+            // Vertical: down by default, up if doesn't fit
+            if (menuPosY + menuHeight > screenBottom) {
+                // Doesn't fit below, show above (bottom-left at mouse)
+                menuPosY = mouseY - menuHeight;
             }
+            // Clamp vertical
+            menuPosY = Math.max(screenTop, Math.min(menuPosY, screenBottom - menuHeight));
 
-            // Final clamp to work area bounds
-            menuX = Math.max(workArea.x, Math.min(menuX, workArea.x + workArea.width - menuWidth));
-            menuY = Math.max(workArea.y, Math.min(menuY, workArea.y + workArea.height - menuHeight));
+            this._contextMenu.actor.set_position(menuPosX, menuPosY);
 
-            this._contextMenu.actor.set_position(menuX, menuY);
-
-            // Store menu reference for submenu check
+            // Store for submenu positioning
             const contextMenu = this._contextMenu;
+
+            // Monitor submenu opening to reposition if needed
+            this._setupSubmenuPositioning(contextMenu, monitor);
 
             // Close menu when clicking outside
             this._menuCaptureId = global.stage.connect('captured-event', (actor, capturedEvent) => {
                 if (capturedEvent.type() === Clutter.EventType.BUTTON_PRESS) {
                     const [clickX, clickY] = capturedEvent.get_coords();
 
-                    // Check if click is inside main menu
-                    const [menuActorX, menuActorY] = contextMenu.actor.get_transformed_position();
-                    const menuW = contextMenu.actor.width;
-                    const menuH = contextMenu.actor.height;
-
-                    const insideMainMenu = clickX >= menuActorX && clickX <= menuActorX + menuW &&
-                        clickY >= menuActorY && clickY <= menuActorY + menuH;
-
-                    // Check if click is inside any open submenu
-                    let insideSubmenu = false;
-                    for (const item of contextMenu._getMenuItems()) {
-                        if (item instanceof PopupMenu.PopupSubMenuMenuItem && item.menu.isOpen) {
-                            const subActor = item.menu.actor;
-                            const [subX, subY] = subActor.get_transformed_position();
-                            const subW = subActor.width;
-                            const subH = subActor.height;
-
-                            if (clickX >= subX && clickX <= subX + subW &&
-                                clickY >= subY && clickY <= subY + subH) {
-                                insideSubmenu = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (!insideMainMenu && !insideSubmenu) {
+                    // Check if click is inside main menu or any submenu
+                    if (!this._isClickInsideMenu(contextMenu, clickX, clickY)) {
                         this._closeContextMenu();
                         return Clutter.EVENT_STOP;
                     }
@@ -1067,6 +640,119 @@ const DesktopIcon = GObject.registerClass(
             });
         }
 
+        _setupSubmenuPositioning(contextMenu, monitor) {
+            // Find all submenu items and monitor their opening
+            const checkSubmenus = (menuItems) => {
+                for (const item of menuItems) {
+                    if (item instanceof PopupMenu.PopupSubMenuMenuItem) {
+                        // Connect to submenu open signal
+                        const submenu = item.menu;
+                        const openId = submenu.connect('open-state-changed', (menu, isOpen) => {
+                            if (isOpen) {
+                                // Reposition submenu after it opens
+                                GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+                                    this._repositionSubmenu(submenu, monitor);
+                                    return GLib.SOURCE_REMOVE;
+                                });
+                            }
+                        });
+
+                        // Store for cleanup
+                        if (!this._submenuSignals) this._submenuSignals = [];
+                        this._submenuSignals.push({ menu: submenu, id: openId });
+
+                        // Check nested submenus
+                        checkSubmenus(submenu._getMenuItems());
+                    }
+                }
+            };
+
+            checkSubmenus(contextMenu._getMenuItems());
+        }
+
+        _repositionSubmenu(submenu, monitor) {
+            if (!submenu.actor) return;
+
+            const [subX, subY] = submenu.actor.get_transformed_position();
+            const subWidth = submenu.actor.width;
+            const subHeight = submenu.actor.height;
+
+            const margin = 5;
+            const screenRight = monitor.x + monitor.width - margin;
+            const screenBottom = monitor.y + monitor.height - margin;
+            const screenTop = monitor.y + margin;
+
+            let newX = subX;
+            let newY = subY;
+
+            // Check horizontal overflow
+            if (subX + subWidth > screenRight) {
+                // Move submenu to left side of parent
+                const parentActor = submenu.sourceActor;
+                if (parentActor) {
+                    const [parentX] = parentActor.get_transformed_position();
+                    newX = parentX - subWidth;
+                }
+            }
+
+            // Check vertical overflow
+            if (subY + subHeight > screenBottom) {
+                // Move up so bottom aligns with screen bottom
+                newY = screenBottom - subHeight;
+            }
+            if (newY < screenTop) {
+                newY = screenTop;
+            }
+
+            // Apply position adjustment via translation
+            const deltaX = newX - subX;
+            const deltaY = newY - subY;
+
+            if (deltaX !== 0 || deltaY !== 0) {
+                submenu.actor.set_position(
+                    submenu.actor.x + deltaX,
+                    submenu.actor.y + deltaY
+                );
+            }
+        }
+
+        _isClickInsideMenu(contextMenu, clickX, clickY) {
+            // Check main menu
+            const [menuActorX, menuActorY] = contextMenu.actor.get_transformed_position();
+            const menuW = contextMenu.actor.width;
+            const menuH = contextMenu.actor.height;
+
+            if (clickX >= menuActorX && clickX <= menuActorX + menuW &&
+                clickY >= menuActorY && clickY <= menuActorY + menuH) {
+                return true;
+            }
+
+            // Check all open submenus recursively
+            const checkSubmenus = (menuItems) => {
+                for (const item of menuItems) {
+                    if (item instanceof PopupMenu.PopupSubMenuMenuItem && item.menu.isOpen) {
+                        const subActor = item.menu.actor;
+                        const [subX, subY] = subActor.get_transformed_position();
+                        const subW = subActor.width;
+                        const subH = subActor.height;
+
+                        if (clickX >= subX && clickX <= subX + subW &&
+                            clickY >= subY && clickY <= subY + subH) {
+                            return true;
+                        }
+
+                        // Check nested submenus
+                        if (checkSubmenus(item.menu._getMenuItems())) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            };
+
+            return checkSubmenus(contextMenu._getMenuItems());
+        }
+
         _closeContextMenu() {
             if (this._menuCaptureId) {
                 global.stage.disconnect(this._menuCaptureId);
@@ -1076,11 +762,88 @@ const DesktopIcon = GObject.registerClass(
                 global.display.disconnect(this._menuFocusId);
                 this._menuFocusId = null;
             }
+            // Cleanup submenu signals
+            if (this._submenuSignals) {
+                for (const { menu, id } of this._submenuSignals) {
+                    try {
+                        menu.disconnect(id);
+                    } catch (e) {
+                        // Menu may already be destroyed
+                    }
+                }
+                this._submenuSignals = null;
+            }
             if (this._contextMenu) {
+                // Close all submenus first
+                try {
+                    for (const item of this._contextMenu._getMenuItems()) {
+                        if (item instanceof PopupMenu.PopupSubMenuMenuItem) {
+                            item.menu.close();
+                        }
+                    }
+                } catch (e) {
+                    // Ignore errors
+                }
                 this._contextMenu.close();
                 this._contextMenu.destroy();
                 this._contextMenu = null;
             }
+            // Remove the anchor widget
+            if (this._menuAnchor) {
+                this._menuAnchor.destroy();
+                this._menuAnchor = null;
+            }
+        }
+
+        _showRemoveConfirmDialog() {
+            // Close context menu first
+            this._closeContextMenu();
+
+            // Create confirmation dialog
+            const dialog = new ModalDialog.ModalDialog({
+                styleClass: 'modal-dialog',
+                destroyOnClose: true,
+            });
+
+            // Dialog content
+            const contentBox = new St.BoxLayout({
+                vertical: true,
+                style: 'spacing: 12px; padding: 12px;',
+            });
+
+            const title = new St.Label({
+                text: 'Remove Item?',
+                style: 'font-weight: bold; font-size: 1.2em;',
+            });
+            contentBox.add_child(title);
+
+            const message = new St.Label({
+                text: `"${this._fileName}" will be moved to the Trash.`,
+                style: 'color: rgba(255,255,255,0.7);',
+            });
+            contentBox.add_child(message);
+
+            dialog.contentLayout.add_child(contentBox);
+
+            // Add buttons
+            dialog.addButton({
+                label: 'Cancel',
+                action: () => {
+                    dialog.close();
+                },
+                key: Clutter.KEY_Escape,
+            });
+
+            dialog.addButton({
+                label: 'Remove',
+                action: () => {
+                    this._moveToTrash();
+                    dialog.close();
+                },
+                default: true,
+            });
+
+            dialog.open();
         }
 
         _moveToTrash() {
@@ -1119,18 +882,6 @@ const DesktopIcon = GObject.registerClass(
         destroy() {
             // Clean up context menu
             this._closeContextMenu();
-
-            // Clean up notification if active
-            if (this._isNotifying) {
-                if (this._notifyTimeoutId) {
-                    GLib.source_remove(this._notifyTimeoutId);
-                    this._notifyTimeoutId = null;
-                }
-                if (this._notifyClone) {
-                    this._notifyClone.destroy();
-                    this._notifyClone = null;
-                }
-            }
             super.destroy();
         }
     }
@@ -1385,6 +1136,14 @@ export default class ObisionExtensionDesk extends Extension {
             this._reloadIcons();
         });
 
+        // Monitor for work area changes (when panels/docks change size)
+        this._workareasChangedId = global.display.connect('workareas-changed', () => {
+            this._onWorkAreaChanged();
+        });
+
+        // Try to connect to obision-dash settings for immediate updates
+        this._setupObisionDashIntegration();
+
         log('Obision Desk enabled');
     }
 
@@ -1404,6 +1163,14 @@ export default class ObisionExtensionDesk extends Extension {
             Main.layoutManager.disconnect(this._monitorsChangedId);
             this._monitorsChangedId = null;
         }
+
+        if (this._workareasChangedId) {
+            global.display.disconnect(this._workareasChangedId);
+            this._workareasChangedId = null;
+        }
+
+        // Cleanup obision-dash integration
+        this._cleanupObisionDashIntegration();
 
         // Stop file monitor
         if (this._fileMonitor) {
@@ -1435,23 +1202,116 @@ export default class ObisionExtensionDesk extends Extension {
         if (!monitor || !this._grid) return;
 
         const workArea = Main.layoutManager.getWorkAreaForMonitor(monitor.index);
+        const columns = this._settings.get_int('grid-columns');
+        const rows = this._settings.get_int('grid-rows');
 
-        log(`[Obision] WorkArea: x=${workArea.x}, y=${workArea.y}, w=${workArea.width}, h=${workArea.height}`);
-        log(`[Obision] Monitor: w=${monitor.width}, h=${monitor.height}`);
+        // Calculate cell size (integer division)
+        const cellWidth = Math.floor(workArea.width / columns);
+        const cellHeight = Math.floor(workArea.height / rows);
+
+        // Calculate actual grid size (may be slightly smaller than workArea)
+        const gridWidth = cellWidth * columns;
+        const gridHeight = cellHeight * rows;
+
+        // Center the grid in the work area to distribute leftover pixels evenly
+        const offsetX = Math.floor((workArea.width - gridWidth) / 2);
+        const offsetY = Math.floor((workArea.height - gridHeight) / 2);
+
+        const gridX = workArea.x + offsetX;
+        const gridY = workArea.y + offsetY;
 
         // Position grid overlay
         if (this._gridOverlay) {
-            this._gridOverlay.set_position(workArea.x, workArea.y);
-            this._gridOverlay.set_size(workArea.width, workArea.height);
+            this._gridOverlay.set_position(gridX, gridY);
+            this._gridOverlay.set_size(gridWidth, gridHeight);
             this._gridOverlay.refresh();
         }
 
-        // Position icon container
-        this._grid.set_position(workArea.x, workArea.y);
-        this._grid.set_size(workArea.width, workArea.height);
+        // Position icon container - use exact grid size
+        this._grid.set_position(gridX, gridY);
+        this._grid.set_size(gridWidth, gridHeight);
+
+        // Store grid bounds for cell calculations
+        this._gridBounds = {
+            x: gridX,
+            y: gridY,
+            width: gridWidth,
+            height: gridHeight,
+            cellWidth: cellWidth,
+            cellHeight: cellHeight,
+        };
 
         // Rebuild cell grid when position changes
         this._buildCellGrid();
+    }
+
+    /**
+     * Handle work area changes (triggered by panels/docks resizing)
+     */
+    _onWorkAreaChanged() {
+        // Debounce to avoid multiple rapid updates
+        if (this._workAreaDebounceId) {
+            GLib.source_remove(this._workAreaDebounceId);
+        }
+
+        this._workAreaDebounceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+            this._updateGridPosition();
+            this._reloadIcons();
+            this._workAreaDebounceId = null;
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    /**
+     * Setup integration with obision-extension-dash
+     * Listen to its settings for immediate grid updates when dash changes
+     */
+    _setupObisionDashIntegration() {
+        const DASH_SCHEMA = 'org.gnome.shell.extensions.obision-extension-dash';
+
+        try {
+            // Try to get obision-dash settings
+            const schemaSource = Gio.SettingsSchemaSource.get_default();
+            const schema = schemaSource.lookup(DASH_SCHEMA, true);
+
+            if (schema) {
+                this._dashSettings = new Gio.Settings({ settings_schema: schema });
+
+                // Keys that affect the work area
+                const relevantKeys = ['dash-size', 'dash-position', 'auto-hide', 'panel-padding'];
+
+                this._dashSettingsId = this._dashSettings.connect('changed', (settings, key) => {
+                    if (relevantKeys.includes(key)) {
+                        // Give the dash time to update its chrome and GNOME to recalculate workArea
+                        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 300, () => {
+                            this._onWorkAreaChanged();
+                            return GLib.SOURCE_REMOVE;
+                        });
+                    }
+                });
+
+                log('[Obision Desk] Connected to obision-extension-dash settings');
+            }
+        } catch (e) {
+            // obision-dash not installed or schema not available - that's fine
+            log(`[Obision Desk] obision-dash integration not available: ${e.message}`);
+        }
+    }
+
+    /**
+     * Cleanup obision-dash integration
+     */
+    _cleanupObisionDashIntegration() {
+        if (this._dashSettingsId && this._dashSettings) {
+            this._dashSettings.disconnect(this._dashSettingsId);
+            this._dashSettingsId = null;
+        }
+        this._dashSettings = null;
+
+        if (this._workAreaDebounceId) {
+            GLib.source_remove(this._workAreaDebounceId);
+            this._workAreaDebounceId = null;
+        }
     }
 
     /**
@@ -1617,6 +1477,10 @@ export default class ObisionExtensionDesk extends Extension {
     }
 
     _getCellWidth() {
+        // Use cached value if available
+        if (this._gridBounds?.cellWidth) {
+            return this._gridBounds.cellWidth;
+        }
         const monitor = Main.layoutManager.primaryMonitor;
         if (!monitor) return 80;
         const workArea = Main.layoutManager.getWorkAreaForMonitor(monitor.index);
@@ -1625,6 +1489,10 @@ export default class ObisionExtensionDesk extends Extension {
     }
 
     _getCellHeight() {
+        // Use cached value if available
+        if (this._gridBounds?.cellHeight) {
+            return this._gridBounds.cellHeight;
+        }
         const monitor = Main.layoutManager.primaryMonitor;
         if (!monitor) return 100;
         const workArea = Main.layoutManager.getWorkAreaForMonitor(monitor.index);
@@ -1825,33 +1693,6 @@ export default class ObisionExtensionDesk extends Extension {
             this._settings.set_string('icon-backgrounds', JSON.stringify(backgrounds));
         } catch (e) {
             log(`Error saving icon background: ${e}`);
-        }
-    }
-
-    // ===== Widget Mode Methods =====
-
-    _isIconWidget(fileName) {
-        try {
-            const json = this._settings.get_string('icon-widgets');
-            const widgets = JSON.parse(json) || {};
-            return widgets[fileName] === true;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    _setIconWidget(fileName, isWidget) {
-        try {
-            const json = this._settings.get_string('icon-widgets');
-            const widgets = JSON.parse(json) || {};
-            if (isWidget) {
-                widgets[fileName] = true;
-            } else {
-                delete widgets[fileName];
-            }
-            this._settings.set_string('icon-widgets', JSON.stringify(widgets));
-        } catch (e) {
-            log(`Error saving widget mode: ${e}`);
         }
     }
 
