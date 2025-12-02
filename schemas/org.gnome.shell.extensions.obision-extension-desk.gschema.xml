@@ -30,12 +30,6 @@
       <description>Number of rows in the desktop grid</description>
     </key>
 
-    <key name="use-grid" type="b">
-      <default>false</default>
-      <summary>Use Grid</summary>
-      <description>Snap icons to a grid layout</description>
-    </key>
-
     <key name="grid-visible" type="b">
       <default>false</default>
       <summary>Show Grid</summary>
