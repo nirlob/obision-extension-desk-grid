@@ -1,7 +1,93 @@
 import Adw from 'gi://Adw';
 import Gtk from 'gi://Gtk';
+import Gdk from 'gi://Gdk';
 import Gio from 'gi://Gio';
 import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
+
+// Helper function to create a color picker with popover (no modal dialog)
+function createColorPicker(settings, settingKey) {
+    const button = new Gtk.MenuButton({
+        valign: Gtk.Align.CENTER,
+    });
+
+    // Create a drawing area to show the current color
+    const colorPreview = new Gtk.DrawingArea({
+        width_request: 24,
+        height_request: 24,
+    });
+
+    // Parse color and draw
+    const updatePreview = () => {
+        const colorStr = settings.get_string(settingKey);
+        const rgba = new Gdk.RGBA();
+        rgba.parse(colorStr);
+        // Force opaque
+        rgba.alpha = 1.0;
+
+        colorPreview.set_draw_func((area, cr, width, height) => {
+            // Draw color rectangle
+            cr.setSourceRGBA(rgba.red, rgba.green, rgba.blue, 1.0);
+            cr.rectangle(0, 0, width, height);
+            cr.fill();
+            // Draw border
+            cr.setSourceRGBA(0.5, 0.5, 0.5, 1.0);
+            cr.setLineWidth(1);
+            cr.rectangle(0.5, 0.5, width - 1, height - 1);
+            cr.stroke();
+        });
+        colorPreview.queue_draw();
+    };
+
+    updatePreview();
+    button.set_child(colorPreview);
+
+    // Create popover with color chooser widget
+    const popover = new Gtk.Popover();
+    const colorChooser = new Gtk.ColorChooserWidget({
+        show_editor: true,
+        use_alpha: false,
+    });
+
+    // Set initial color
+    const initialColor = settings.get_string(settingKey);
+    const rgba = new Gdk.RGBA();
+    if (rgba.parse(initialColor)) {
+        rgba.alpha = 1.0;
+        colorChooser.set_rgba(rgba);
+    }
+
+    // Create a box with the color chooser and an apply button
+    const box = new Gtk.Box({
+        orientation: Gtk.Orientation.VERTICAL,
+        spacing: 8,
+        margin_top: 8,
+        margin_bottom: 8,
+        margin_start: 8,
+        margin_end: 8,
+    });
+
+    box.append(colorChooser);
+
+    const applyButton = new Gtk.Button({
+        label: 'Apply',
+        css_classes: ['suggested-action'],
+    });
+
+    applyButton.connect('clicked', () => {
+        const newColor = colorChooser.get_rgba();
+        // Force opaque color (no alpha)
+        const opaqueColor = `rgb(${Math.round(newColor.red * 255)},${Math.round(newColor.green * 255)},${Math.round(newColor.blue * 255)})`;
+        settings.set_string(settingKey, opaqueColor);
+        updatePreview();
+        popover.popdown();
+    });
+
+    box.append(applyButton);
+    popover.set_child(box);
+    button.set_popover(popover);
+
+    return button;
+}
 
 export default class ObisionExtensionDeskPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
@@ -134,14 +220,14 @@ export default class ObisionExtensionDeskPreferences extends ExtensionPreference
         });
         gridGroup.add(gridPatternRow);
 
-        // Grid Color
-        const gridColorRow = new Adw.EntryRow({
+        // Grid Color with color picker
+        const gridColorRow = new Adw.ActionRow({
             title: 'Grid Color',
+            subtitle: 'Color of the grid lines',
         });
-        gridColorRow.set_text(settings.get_string('grid-color'));
-        gridColorRow.connect('changed', () => {
-            settings.set_string('grid-color', gridColorRow.get_text());
-        });
+        const gridColorButton = createColorPicker(settings, 'grid-color');
+        gridColorRow.add_suffix(gridColorButton);
+        gridColorRow.activatable_widget = gridColorButton;
         gridGroup.add(gridColorRow);
 
         // Grid Line Width
