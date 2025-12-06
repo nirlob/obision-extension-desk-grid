@@ -1,9 +1,8 @@
 #!/bin/bash
-#!/bin/bash
 
 # Script to reload the GNOME Shell extension
 
-EXTENSION_UUID="obision-extension-dash@obision.com"
+EXTENSION_UUID="obision-extension-desk-grid@obision.com"
 
 echo "🔄 Reloading extension..."
 

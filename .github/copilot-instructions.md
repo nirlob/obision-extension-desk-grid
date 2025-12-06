@@ -2,40 +2,69 @@
 
 ## Project Overview
 
-GNOME Shell extension for desktop icons with multi-size support. Built using GJS (GNOME JavaScript) and the GNOME Shell extension framework for GNOME 48+.
+GNOME Shell extension for desktop icons with grid-based layout. Icons can span multiple cells (1x1 to 4x4) and have elevation/background styles for "widget mode". Built using GJS (GNOME JavaScript) for GNOME Shell 48+.
+
+**Key Differentiator**: Unlike DING (Desktop Icons NG), this extension runs entirely in the shell process using St.* widgets, not as a separate GTK subprocess.
 
 ## Architecture
 
-### Core Components
+### Core Components (all in `extension.js`)
 
-- **`extension.js`**: Main entry point with `enable()`/`disable()` lifecycle
-  - `ObisionExtensionDesk`: Extension class managing lifecycle and state
-  - `DesktopGrid`: Container widget handling icon layout
-  - `DesktopIcon`: Individual icon widget with selection/DnD support
+1. **`ObisionExtensionDesk`** (Extension class)
+   - Manages lifecycle (`enable()`/`disable()`)
+   - Maintains `_cells` array: bidimensional grid tracking which cells are occupied by which icons
+   - Handles file monitoring via `Gio.FileMonitor` on Desktop directory
+   - Stores per-icon metadata in GSettings: `icon-sizes`, `icon-elevations`, `icon-backgrounds`, `icon-positions`
 
-- **`prefs.js`**: Preferences dialog using libadwaita (Adw) widgets
-  - Uses `ExtensionPreferences` base class from GNOME 45+ API
+2. **`DesktopGrid`** (St.Widget subclass)
+   - Container positioned at `Main.layoutManager._backgroundGroup` (desktop layer)
+   - Uses fixed layout manager - icons positioned by absolute pixel coordinates
+   - Handles rubber band selection and drag-drop target
+   - Position calculated from work area using `Main.layoutManager.getWorkAreaForMonitor()`
 
-- **`schemas/*.gschema.xml`**: GSettings schema for persistent configuration
+3. **`GridOverlay`** (St.DrawingArea subclass)
+   - Draws grid lines/dots using Cairo when `grid-visible` setting enabled
+   - Positioned identically to DesktopGrid for perfect alignment
 
-### Key Patterns
+4. **`DesktopIcon`** (St.BoxLayout subclass)
+   - Width/height fixed to span N×M cells (e.g., 2x2 icon = 2 cells wide × 2 cells tall)
+   - Icon image size calculated from available space minus padding and label height
+   - Context menu via `PopupMenu.PopupMenu` for size/style changes
+   - CSS classes: `elevation-0` to `elevation-3`, `bg-none`/`bg-frost`/`bg-glass`, `widget-mode`
 
+### Grid System Architecture
+
+**How icons know their size and position:**
 ```javascript
-// GNOME Shell extension structure
-import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
-
-export default class MyExtension extends Extension {
-    enable() { /* activation */ }
-    disable() { /* cleanup - MUST remove all traces */ }
+// 1. Cell grid built at startup
+_buildCellGrid() {
+    this._cells = []; // 2D array: _cells[col][row]
+    for (col in columns) {
+        for (row in rows) {
+            this._cells[col][row] = { occupied: false, icon: null };
+        }
+    }
 }
 
-// GObject widget registration
-const MyWidget = GObject.registerClass(
-class MyWidget extends St.Widget {
-    _init(params) {
-        super._init(params);
-    }
-});
+// 2. Icon requests cell space when created
+const cellSize = extension._getIconCellSize(fileName); // e.g., {cols: 2, rows: 1}
+const position = extension.findFreeSpace(cellSize); // Searches _cells array
+
+// 3. Icon reserves cells
+extension.occupyCells(col, row, cellSize, iconInstance);
+
+// 4. Icon size calculated from cells
+const cellWidth = extension._getCellWidth(); // workArea.width / gridColumns
+const iconPixelWidth = cellWidth * cellSize.cols;
+```
+
+**Cell size mapping** (stored in GSettings `icon-sizes` as JSON):
+```javascript
+{
+    "document.pdf": "2x2",    // 2 cells wide, 2 tall
+    "Projects": "3x1",        // 3 cells wide, 1 tall
+    "image.png": "1x1"        // default
+}
 ```
 
 ### Import Conventions
@@ -44,29 +73,46 @@ class MyWidget extends St.Widget {
 // GI modules use gi:// protocol
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
-import St from 'gi://St';
+import St from 'gi://St';        // Shell Toolkit (NOT Gtk!)
 import Clutter from 'gi://Clutter';
+import Cairo from 'gi://cairo';  // For grid drawing
+import Pango from 'gi://Pango';  // For text layout
 
 // GNOME Shell modules use resource:// protocol
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 ```
 
 ## Development Workflow
 
+### Essential Commands
+
 ```bash
-npm run deploy    # Build + install (then restart shell)
-npm run update    # Build + install + reload (X11 only)
-npm run lint      # Check code style
+# Development cycle
+npm run deploy     # Build (compile schemas + pack) → install → show restart instructions
+npm run update     # deploy + auto-reload (X11 only, uses scripts/reload.sh)
+npm run logs       # journalctl -f -o cat /usr/bin/gnome-shell
+
+# Schema changes require
+npm run compile-schemas   # glib-compile-schemas schemas/
+npm run deploy           # then restart shell
+
+# Release process
+npm run release    # Automated: bump version → commit → tag → push (triggers GitHub Actions)
+npm run deb-build  # Build .deb package with dpkg-buildpackage
 ```
 
 ### Testing Changes
 
-1. Modify code
-2. Run `npm run deploy`
+1. Edit `extension.js`, `prefs.js`, or `stylesheet.css`
+2. `npm run deploy` (if you changed GSettings schema, this recompiles it)
 3. Restart GNOME Shell:
-   - X11: `Alt+F2` → `r` → Enter
-   - Wayland: Log out/in
-4. Check logs: `journalctl -f -o cat /usr/bin/gnome-shell`
+   - **X11**: `Alt+F2` → type `r` → Enter (or use `npm run update` to auto-reload)
+   - **Wayland**: Log out/in (no hot reload available)
+4. Watch logs: `npm run logs` or `journalctl -f -o cat /usr/bin/gnome-shell`
+5. Use Looking Glass for debugging: `Alt+F2` → type `lg` → Enter (X11 only)
+
+**Debugging tip**: Use `log('message')` in extension code (NOT `console.log`). Output appears in journalctl.
 
 ## Critical Constraints
 
@@ -104,23 +150,33 @@ disable() {
 - Use `St.*` widgets (not Gtk) in shell extensions
 - Use `Clutter.ActorAlign` for alignment
 
-## Icon Size Implementation
+## Icon Size & Widget Mode
+
+**Icon sizes are GRID-BASED, not pixel-based:**
 
 ```javascript
-// Size presets in extension.js
-const ICON_SIZES = {
-    small: 48,
-    medium: 64,
-    large: 96,
-    xlarge: 128,
+// extension.js defines cell sizes (NOT pixel sizes)
+const ICON_CELL_SIZES = {
+    '1x1': { cols: 1, rows: 1 },  // Default
+    '2x2': { cols: 2, rows: 2 },  // Large widget
+    '3x1': { cols: 3, rows: 1 },  // Wide icon
+    '4x4': { cols: 4, rows: 4 },  // Maximum
+    // ...etc
 };
 
-// Per-icon custom sizes stored in GSettings as JSON
+// Per-icon sizes stored in GSettings as JSON string
 {
-    "filename.txt": "large",
-    "folder": "xlarge"
+    "document.pdf": "2x2",    // Spans 2×2 cells
+    "Projects": "3x1",        // Wide folder
+    "image.png": "1x1"        // Default
 }
 ```
+
+**Widget mode** (elevation + backgrounds):
+- Icons can have `elevation` (0-3) for shadow depth
+- Backgrounds: `none`, `frost` (frosted glass), `glass` (translucent)
+- Stored separately in GSettings: `icon-elevations`, `icon-backgrounds`
+- Applied via CSS classes in `stylesheet.css`
 
 ## File Structure
 
