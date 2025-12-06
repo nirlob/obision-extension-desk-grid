@@ -76,7 +76,7 @@ const DesktopIcon = GObject.registerClass(
             super._init({
                 reactive: true,
                 can_focus: true,
-                track_hover: true,
+                track_hover: false,
                 style_class: 'desktop-icon',
                 // Fix widget size to cell dimensions
                 width: widgetWidth,
@@ -90,8 +90,7 @@ const DesktopIcon = GObject.registerClass(
             this._selected = false;
             this._dragging = false;
 
-            // Apply elevation and background styles
-            this._applyElevationStyle();
+            // Apply background style to the main widget
             this._applyBackgroundStyle();
 
             // Inner container to group icon+label and center them together
@@ -114,12 +113,15 @@ const DesktopIcon = GObject.registerClass(
             // Create icon from file info
             this._createIcon();
 
-            // Calculate font size proportionally to icon size
-            // Base: 10px font for base icon size (~48px)
-            const baseIconSizeRef = extension._getBaseIconSize();
-            const fontSizeRatio = iconSize / baseIconSizeRef;
-            const baseFontSize = 10;
-            const fontSize = Math.round(baseFontSize + (fontSizeRatio - 1) * 2); // Scale gently
+            // Apply elevation to the icon image only
+            this._applyElevationStyle();
+
+            // Calculate font size proportionally to cell size
+            // For larger icons (2x2, 3x3, 4x4, etc.), use larger fonts  
+            const baseFontSize = 12;
+            const cellSizeMultiplier = Math.max(this._cellSize.cols, this._cellSize.rows);
+            // Progressive scaling: 1x1=12px, 2x2=17px, 3x3=23px, 4x4=30px
+            const fontSize = Math.round(baseFontSize + (cellSizeMultiplier - 1) * 5 + (cellSizeMultiplier > 2 ? 3 : 0));
 
             // Label - St.Label handles wrapping automatically with width constraint
             this._label = new St.Label({
@@ -149,17 +151,31 @@ const DesktopIcon = GObject.registerClass(
         }
 
         _applyElevationStyle() {
-            // Remove any existing elevation classes
-            for (let i = 0; i <= 3; i++) {
-                this.remove_style_class_name(`elevation-${i}`);
-            }
+            if (!this._icon) return;
             // Get elevation for this icon
             const elevation = this._extension._getIconElevation(this._fileName);
-            this.add_style_class_name(`elevation-${elevation}`);
             this._elevation = elevation;
-        }
 
-        _applyBackgroundStyle() {
+            // Apply icon-shadow based on elevation level (bottom-right direction)
+            let shadowStyle = '';
+            switch (elevation) {
+                case 1:
+                    shadowStyle = 'icon-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);';
+                    break;
+                case 2:
+                    shadowStyle = 'icon-shadow: 4px 4px 8px rgba(0, 0, 0, 0.6);';
+                    break;
+                case 3:
+                    shadowStyle = 'icon-shadow: 6px 6px 12px rgba(0, 0, 0, 0.7);';
+                    break;
+                default:
+                    shadowStyle = '';
+            }
+
+            if (shadowStyle) {
+                this._icon.set_style(shadowStyle);
+            }
+        } _applyBackgroundStyle() {
             // Remove any existing background classes
             const bgClasses = ['bg-none', 'bg-light', 'bg-dark', 'bg-accent'];
             for (const cls of bgClasses) {
@@ -172,14 +188,31 @@ const DesktopIcon = GObject.registerClass(
         }
 
         setElevation(level) {
-            for (let i = 0; i <= 3; i++) {
-                this.remove_style_class_name(`elevation-${i}`);
-            }
-            this.add_style_class_name(`elevation-${level}`);
+            if (!this._icon) return;
             this._elevation = level;
-        }
 
-        setBackground(style) {
+            // Apply icon-shadow based on elevation level (bottom-right direction)
+            let shadowStyle = '';
+            switch (level) {
+                case 1:
+                    shadowStyle = 'icon-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7);';
+                    break;
+                case 2:
+                    shadowStyle = 'icon-shadow: 4px 4px 8px rgba(0, 0, 0, 0.7);';
+                    break;
+                case 3:
+                    shadowStyle = 'icon-shadow: 6px 6px 12px rgba(0, 0, 0, 0.7);';
+                    break;
+                default:
+                    shadowStyle = '';
+            }
+
+            if (shadowStyle) {
+                this._icon.set_style(shadowStyle);
+            } else {
+                this._icon.set_style('');
+            }
+        } setBackground(style) {
             const bgClasses = ['bg-none', 'bg-light', 'bg-dark', 'bg-accent'];
             for (const cls of bgClasses) {
                 this.remove_style_class_name(cls);
@@ -322,79 +355,36 @@ const DesktopIcon = GObject.registerClass(
                 const button = event.get_button();
 
                 if (button === 1) {
-                    // Check for double-click first
-                    const now = GLib.get_monotonic_time();
-                    if (this._lastClickTime && (now - this._lastClickTime) < 400000) {
-                        // Double click (400ms threshold)
-                        this._lastClickTime = 0;
+                    const singleClick = this._extension._settings.get_boolean('single-click');
+
+                    if (singleClick) {
+                        // Single click mode - open immediately
                         this._open();
                         return Clutter.EVENT_STOP;
+                    } else {
+                        // Double click mode - check for double-click first
+                        const now = GLib.get_monotonic_time();
+                        if (this._lastClickTime && (now - this._lastClickTime) < 400000) {
+                            // Double click (400ms threshold)
+                            this._lastClickTime = 0;
+                            this._open();
+                            return Clutter.EVENT_STOP;
+                        }
+                        this._lastClickTime = now;
+
+                        // Left click - start potential drag via extension's global handler
+                        // Don't select yet - wait until button release to know if it was a drag
+                        const [stageX, stageY] = event.get_coords();
+                        this._extension._startIconDrag(this, stageX, stageY);
+
+                        return Clutter.EVENT_STOP;
                     }
-                    this._lastClickTime = now;
-
-                    // Left click - start potential drag via extension's global handler
-                    // Don't select yet - wait until button release to know if it was a drag
-                    const [stageX, stageY] = event.get_coords();
-                    this._extension._startIconDrag(this, stageX, stageY);
-
-                    return Clutter.EVENT_STOP;
                 } else if (button === 3) {
                     // Right click
                     this._showContextMenu(event);
                     return Clutter.EVENT_STOP;
                 }
                 return Clutter.EVENT_PROPAGATE;
-            });
-
-            // Hover effects
-            this.connect('enter-event', () => {
-                if (!this._dragging) {
-                    // Apply hover style directly
-                    this._setHoverStyle(true);
-                    // Scale up on hover - fixed pixel amount for consistent feel
-                    this._applyHoverScale(true);
-                }
-            });
-
-            this.connect('leave-event', () => {
-                if (!this._dragging) {
-                    // Remove hover style
-                    this._setHoverStyle(false);
-                    // Reset scale
-                    this._applyHoverScale(false);
-                }
-            });
-        }
-
-        _setHoverStyle(hover) {
-            if (hover && !this._selected) {
-                // Add shadow on hover if icon has no elevation
-                const hasElevation = this._elevation && this._elevation > 0;
-                if (hasElevation) {
-                    this.set_style('background-color: rgba(255, 255, 255, 0.25);');
-                } else {
-                    this.set_style('background-color: rgba(255, 255, 255, 0.25); box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);');
-                }
-            } else if (!hover && !this._selected) {
-                this.set_style('');
-            }
-        }
-
-        _applyHoverScale(hover) {
-            // Set pivot point to center for scaling from center
-            this.set_pivot_point(0.5, 0.5);
-
-            // Use fixed pixel increase (~8px) instead of percentage
-            // This makes the effect consistent across all icon sizes
-            const pixelIncrease = 8;
-            const baseSize = Math.max(this.width, this.height);
-            const scaleFactor = hover ? 1 + (pixelIncrease / baseSize) : 1.0;
-
-            this.ease({
-                scale_x: scaleFactor,
-                scale_y: scaleFactor,
-                duration: 100,
-                mode: Clutter.AnimationMode.EASE_OUT_QUAD,
             });
         }
 
@@ -1089,13 +1079,15 @@ const DesktopIcon = GObject.registerClass(
                 this._icon.set_icon_size(iconSize);
             }
 
-            // Update font size proportionally
-            const baseIconSizeRef = this._extension._getBaseIconSize();
-            const fontSizeRatio = iconSize / baseIconSizeRef;
-            const baseFontSize = 10;
-            const fontSize = Math.round(baseFontSize + (fontSizeRatio - 1) * 2);
+            // Update font size proportionally to cell size
+            const baseFontSize = 12;
+            const cellSizeMultiplier = Math.max(this._cellSize.cols, this._cellSize.rows);
+            // Progressive scaling: 1x1=12px, 2x2=17px, 3x3=23px, 4x4=30px
+            const fontSize = Math.round(baseFontSize + (cellSizeMultiplier - 1) * 5 + (cellSizeMultiplier > 2 ? 3 : 0));
             if (this._label) {
-                this._label.style = `font-size: ${fontSize}px;`;
+                const lineHeight = Math.ceil(fontSize * 1.2);
+                this._label.style = `font-size: ${fontSize}px; max-height: ${lineHeight * 2 + 4}px;`;
+                this._label.width = widgetWidth - 8;
             }
 
             this.set_size(widgetWidth, widgetHeight);
@@ -1481,14 +1473,21 @@ export default class ObisionExtensionDesk extends Extension {
         Main.layoutManager._backgroundGroup.add_child(this._gridOverlay);
         Main.layoutManager._backgroundGroup.add_child(this._grid);
 
-        // Position grid and overlay
-        this._updateGridPosition();
+        // Wait for work area to be properly calculated (especially if dash is active)
+        // This prevents the grid from being positioned incorrectly on startup
+        this._initTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 150, () => {
+            // Position grid and overlay
+            this._updateGridPosition();
 
-        // Build cell grid structure
-        this._buildCellGrid();
+            // Build cell grid structure
+            this._buildCellGrid();
 
-        // Load desktop files
-        this._loadDesktopFiles();
+            // Load desktop files
+            this._loadDesktopFiles();
+
+            this._initTimeoutId = null;
+            return GLib.SOURCE_REMOVE;
+        });
 
         // Monitor desktop directory for changes
         this._setupFileMonitor();
@@ -1533,6 +1532,12 @@ export default class ObisionExtensionDesk extends Extension {
     disable() {
         log('Obision Desk disabling...');
 
+        // Cleanup initialization timeout
+        if (this._initTimeoutId) {
+            GLib.source_remove(this._initTimeoutId);
+            this._initTimeoutId = null;
+        }
+
         // Cleanup global drag handler
         this._cleanupGlobalDragHandler();
 
@@ -1554,6 +1559,12 @@ export default class ObisionExtensionDesk extends Extension {
 
         // Cleanup obision-dash integration
         this._cleanupObisionDashIntegration();
+
+        // Cleanup work area debounce timeout
+        if (this._workAreaDebounceId) {
+            GLib.source_remove(this._workAreaDebounceId);
+            this._workAreaDebounceId = null;
+        }
 
         // Stop file monitor
         if (this._fileMonitor) {

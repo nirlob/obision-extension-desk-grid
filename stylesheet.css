@@ -13,11 +13,7 @@
     transition-duration: 150ms;
 }
 
-/* Normal icons - hover effect */
-.desktop-icon.hover {
-    background-color: rgba(255, 255, 255, 0.3);
-    border-radius: 8px;
-}
+/* Normal icons - hover removed */
 
 /* Selected - strong blue highlight */
 .desktop-icon.selected {
@@ -47,10 +43,7 @@
     padding: 10px;
 }
 
-.desktop-icon.widget-mode:hover {
-    /* Widgets have more prominent hover */
-    transform: scale(1.02);
-}
+
 
 /* Widget indicator - subtle corner mark */
 .desktop-icon.widget-mode::after {
@@ -60,39 +53,9 @@
 /* ===== Elevation Levels (Z-depth effect with shadows) ===== */
 /* Only meaningful for widgets */
 
-/* Elevation 0 - Flat (default, no shadow) */
-.desktop-icon.elevation-0 {
-    box-shadow: none;
-}
+/* Elevation levels are applied via icon-shadow property in JavaScript */
 
-/* Elevation 1 - Low (subtle lift) */
-.desktop-icon.elevation-1 {
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3),
-        0 1px 2px rgba(0, 0, 0, 0.2);
-}
 
-/* Elevation 2 - Medium (noticeable float) */
-.desktop-icon.elevation-2 {
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.35),
-        0 2px 4px rgba(0, 0, 0, 0.25),
-        0 1px 2px rgba(0, 0, 0, 0.15);
-}
-
-/* Elevation 3 - High (prominent, "floating" effect) */
-.desktop-icon.elevation-3 {
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4),
-        0 4px 8px rgba(0, 0, 0, 0.3),
-        0 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-/* Hover adds slight lift to elevated icons */
-.desktop-icon.elevation-1:hover,
-.desktop-icon.elevation-2:hover,
-.desktop-icon.elevation-3:hover {
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.45),
-        0 6px 10px rgba(0, 0, 0, 0.35),
-        0 3px 6px rgba(0, 0, 0, 0.25);
-}
 
 /* ===== Background Styles ===== */
 
@@ -107,9 +70,7 @@
     border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-.desktop-icon.bg-light:hover {
-    background-color: rgba(255, 255, 255, 0.25);
-}
+
 
 /* Dark background */
 .desktop-icon.bg-dark {
@@ -117,9 +78,7 @@
     border: 1px solid rgba(0, 0, 0, 0.2);
 }
 
-.desktop-icon.bg-dark:hover {
-    background-color: rgba(0, 0, 0, 0.45);
-}
+
 
 /* Accent color background (uses GNOME accent) */
 .desktop-icon.bg-accent {
@@ -127,22 +86,7 @@
     border: 1px solid rgba(53, 132, 228, 0.3);
 }
 
-.desktop-icon.bg-accent:hover {
-    background-color: rgba(53, 132, 228, 0.3);
-}
 
-/* Glassmorphism effect for elevated + background */
-.desktop-icon.elevation-2.bg-light,
-.desktop-icon.elevation-3.bg-light {
-    background-color: rgba(255, 255, 255, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-}
-
-.desktop-icon.elevation-2.bg-dark,
-.desktop-icon.elevation-3.bg-dark {
-    background-color: rgba(0, 0, 0, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-}
 
 /* Icon Image Container */
 .desktop-icon-container {

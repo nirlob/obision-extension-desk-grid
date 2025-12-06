@@ -244,43 +244,6 @@ export default class ObisionExtensionDeskPreferences extends ExtensionPreference
         gridGroup.add(gridLineWidthRow);
         settings.bind('grid-line-width', gridLineWidthRow, 'value', Gio.SettingsBindFlags.DEFAULT);
 
-        // Grid Spacing
-        const gridSpacingRow = new Adw.SpinRow({
-            title: 'Grid Spacing',
-            subtitle: 'Space between icons in pixels',
-            adjustment: new Gtk.Adjustment({
-                lower: 4,
-                upper: 48,
-                step_increment: 2,
-                page_increment: 8,
-            }),
-        });
-        gridGroup.add(gridSpacingRow);
-        settings.bind('grid-spacing', gridSpacingRow, 'value', Gio.SettingsBindFlags.DEFAULT);
-
-        // Sort By
-        const sortByRow = new Adw.ComboRow({
-            title: 'Sort By',
-            subtitle: 'How to sort desktop icons',
-        });
-        const sortModel = new Gtk.StringList();
-        sortModel.append('Name');
-        sortModel.append('Modified Date');
-        sortModel.append('Size');
-        sortModel.append('Type');
-        sortByRow.set_model(sortModel);
-
-        const sortMap = { name: 0, modified: 1, size: 2, type: 3 };
-        const reverseSortMap = ['name', 'modified', 'size', 'type'];
-        const currentSort = settings.get_string('sort-by');
-        sortByRow.set_selected(sortMap[currentSort] ?? 0);
-
-        sortByRow.connect('notify::selected', () => {
-            const selected = sortByRow.get_selected();
-            settings.set_string('sort-by', reverseSortMap[selected]);
-        });
-        gridGroup.add(sortByRow);
-
         // Behavior Group
         const behaviorGroup = new Adw.PreferencesGroup({
             title: 'Behavior',
