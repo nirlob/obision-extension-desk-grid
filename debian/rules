@@ -8,17 +8,19 @@ export DH_VERBOSE = 1
 override_dh_auto_configure:
 
 override_dh_auto_build:
-        glib-compile-schemas schemas/
-        zip -r obision-extension-desk-grid@obision.com.shell-extension.zip \
-                extension.js \
-                metadata.json \
-                prefs.js \
-                stylesheet.css \
-                schemas/
+	glib-compile-schemas schemas/
+	zip -r obision-extension-desk-grid@obision.com.shell-extension.zip \
+		extension.js \
+		metadata.json \
+		prefs.js \
+		stylesheet.css \
+		schemas/
 
 override_dh_auto_install:
-        mkdir -p debian/gnome-shell-extension-obision-desk-grid/usr/share/gnome-shell/extensions/obision-extension-desk-grid@obision.com
-        unzip -q obision-extension-desk-grid@obision.com.shell-extension.zip -d debian/gnome-shell-extension-obision-desk-grid/usr/share/gnome-shell/extensions/obision-extension-desk-grid@obision.com/override_dh_auto_clean:
+	mkdir -p debian/gnome-shell-extension-obision-desk-grid/usr/share/gnome-shell/extensions/obision-extension-desk-grid@obision.com
+	unzip -q obision-extension-desk-grid@obision.com.shell-extension.zip -d debian/gnome-shell-extension-obision-desk-grid/usr/share/gnome-shell/extensions/obision-extension-desk-grid@obision.com/
+
+override_dh_auto_clean:
 	rm -f *.zip
 	rm -f schemas/gschemas.compiled
 	dh_clean
