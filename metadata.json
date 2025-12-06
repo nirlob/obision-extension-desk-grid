@@ -6,7 +6,7 @@
     "48",
     "49"
   ],
-  "version": 14,
+  "version": 15,
   "url": "https://github.com/nirlob/obision-extension-desk-grid",
   "settings-schema": "org.gnome.shell.extensions.obision-extension-desk-grid"
 }
