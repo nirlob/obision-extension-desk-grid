@@ -14,10 +14,11 @@ import Clutter from 'gi://Clutter';
 import Cairo from 'gi://cairo';
 import Pango from 'gi://Pango';
 
-import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
+import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
+import * as ExtensionUtils from 'resource:///org/gnome/shell/misc/extensionUtils.js';
 
 // Icon sizes based on cell count (cols x rows)
 // Base icon size fits in 1 cell, larger icons span multiple cells
@@ -126,13 +127,21 @@ const DesktopIcon = GObject.registerClass(
                 style_class: 'desktop-icon-label',
                 style: `font-size: ${fontSize}px;`,
                 x_align: Clutter.ActorAlign.CENTER,
+                y_align: Clutter.ActorAlign.START,
                 width: widgetWidth - 8,
             });
+            // Configure wrapping for 2 lines
             this._label.clutter_text.set_line_wrap(true);
-            this._label.clutter_text.set_ellipsize(Pango.EllipsizeMode.END);
-            // Limit to 2 lines max
-            this._label.clutter_text.set_max_length(0); // no char limit
-            this._label.set_style(`font-size: ${fontSize}px; max-height: ${fontSize * 2.4}px;`);
+            this._label.clutter_text.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR);
+            this._label.clutter_text.set_line_alignment(Pango.Alignment.CENTER);
+            this._label.clutter_text.set_single_line_mode(false);
+            // Set max lines to 2 and ellipsize at the end
+            this._label.clutter_text.set_max_length(-1); // unlimited chars
+            const clutterText = this._label.clutter_text;
+            clutterText.ellipsize = Pango.EllipsizeMode.END;
+            // Calculate height for exactly 2 lines
+            const lineHeight = Math.ceil(fontSize * 1.2);
+            this._label.set_style(`font-size: ${fontSize}px; max-height: ${lineHeight * 2 + 4}px;`);
             this._innerBox.add_child(this._label);
 
             // Setup event handlers
@@ -182,35 +191,83 @@ const DesktopIcon = GObject.registerClass(
         _createIcon() {
             try {
                 let gicon = null;
+                let iconName = null;
 
-                // Try to get icon from content type (better for documents)
-                const contentType = this._fileInfo.get_content_type();
-                if (contentType) {
-                    // First try to get the app's icon for this content type
-                    const appInfo = Gio.AppInfo.get_default_for_type(contentType, false);
-                    if (appInfo) {
-                        gicon = appInfo.get_icon();
+                // Check for special icons first
+                const isTrash = this._fileInfo.get_attribute_boolean('special::is-trash');
+                const isHome = this._fileInfo.get_attribute_boolean('special::is-home');
+
+                if (isTrash) {
+                    iconName = 'user-trash-full';
+                } else if (isHome) {
+                    iconName = 'user-home';
+                } else {
+                    // Check if it's a .desktop file
+                    const fileName = this._fileInfo.get_name();
+                    if (fileName && fileName.endsWith('.desktop')) {
+                        try {
+                            const file = this._fileInfo.get_attribute_object('standard::file');
+                            if (file && file.get_path()) {
+                                const desktopAppInfo = Gio.DesktopAppInfo.new_from_filename(file.get_path());
+                                if (desktopAppInfo) {
+                                    gicon = desktopAppInfo.get_icon();
+                                }
+                            }
+                        } catch (e) {
+                            log(`Error reading .desktop file: ${e}`);
+                        }
                     }
 
-                    // If no app icon, use the content type icon
+                    // Fallback to content type icon
                     if (!gicon) {
-                        gicon = Gio.content_type_get_icon(contentType);
+                        const contentType = this._fileInfo.get_content_type();
+                        if (contentType) {
+                            const appInfo = Gio.AppInfo.get_default_for_type(contentType, false);
+                            gicon = appInfo ? appInfo.get_icon() : Gio.content_type_get_icon(contentType);
+                        }
+                    }
+
+                    // Final fallback to file's standard icon
+                    if (!gicon) {
+                        gicon = this._fileInfo.get_icon();
                     }
                 }
 
-                // Fallback to file's standard icon
-                if (!gicon) {
-                    gicon = this._fileInfo.get_icon();
+                // Extract icon name from GIcon, preferring non-symbolic variants
+                let finalIconName = iconName;
+                if (!finalIconName && gicon && gicon.constructor.name === 'GThemedIcon') {
+                    const names = gicon.get_names ? gicon.get_names() : [];
+
+                    // Find first non-symbolic icon name
+                    for (const name of names) {
+                        if (name && !name.endsWith('-symbolic')) {
+                            finalIconName = name;
+                            break;
+                        }
+                    }
+
+                    // If only symbolic variants exist, remove -symbolic suffix
+                    if (!finalIconName && names.length > 0) {
+                        finalIconName = names[0].replace('-symbolic', '');
+                    }
                 }
 
-                if (gicon) {
+                // Create icon
+                if (finalIconName) {
+                    this._icon = new St.Icon({
+                        icon_name: finalIconName,
+                        icon_size: this._iconSize,
+                        style_class: 'desktop-icon-image',
+                        fallback_icon_name: 'application-x-executable',
+                    });
+                } else if (gicon) {
                     this._icon = new St.Icon({
                         gicon: gicon,
                         icon_size: this._iconSize,
                         style_class: 'desktop-icon-image',
+                        fallback_icon_name: 'application-x-executable',
                     });
                 } else {
-                    // Final fallback icon
                     this._icon = new St.Icon({
                         icon_name: 'text-x-generic',
                         icon_size: this._iconSize,
@@ -224,10 +281,30 @@ const DesktopIcon = GObject.registerClass(
         }
 
         _getDisplayName() {
+            // For .desktop files, get the app name from the file
+            const fileName = this._fileInfo.get_name();
+            if (fileName && fileName.endsWith('.desktop')) {
+                try {
+                    const file = this._fileInfo.get_attribute_object('standard::file');
+                    if (file) {
+                        const desktopAppInfo = Gio.DesktopAppInfo.new_from_filename(file.get_path());
+                        if (desktopAppInfo) {
+                            const appName = desktopAppInfo.get_display_name();
+                            if (appName) {
+                                // Allow up to ~60 chars for 2 lines (~30 per line)
+                                return appName.length > 60 ? appName.substring(0, 57) + '...' : appName;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    log(`Error getting .desktop display name: ${e}`);
+                }
+            }
+
             const name = this._fileInfo.get_display_name();
-            // Allow up to ~40 chars for 2 lines, truncate after
-            if (name.length > 40) {
-                return name.substring(0, 37) + '...';
+            // Allow up to ~60 chars for 2 lines (~30 per line)
+            if (name.length > 60) {
+                return name.substring(0, 57) + '...';
             }
             return name;
         }
@@ -340,17 +417,40 @@ const DesktopIcon = GObject.registerClass(
         _open() {
             try {
                 const file = this._fileInfo.get_attribute_object('standard::file');
-                if (file) {
-                    const appInfo = Gio.AppInfo.get_default_for_type(
-                        this._fileInfo.get_content_type(),
-                        false
-                    );
-                    if (appInfo) {
-                        appInfo.launch([file], null);
-                    } else {
-                        // Open with default handler
-                        Gio.app_info_launch_default_for_uri(file.get_uri(), null);
+                if (!file) return;
+
+                // Check if it's a .desktop file - launch the application
+                const fileName = this._fileInfo.get_name();
+                if (fileName && fileName.endsWith('.desktop')) {
+                    try {
+                        const desktopAppInfo = Gio.DesktopAppInfo.new_from_filename(file.get_path());
+                        if (desktopAppInfo) {
+                            desktopAppInfo.launch([], null);
+                            return;
+                        }
+                    } catch (e) {
+                        log(`Error launching .desktop file: ${e}`);
                     }
+                }
+
+                // Check for special icons
+                const isTrash = this._fileInfo.get_attribute_boolean('special::is-trash');
+                if (isTrash) {
+                    // Open trash folder with file manager
+                    Gio.app_info_launch_default_for_uri('trash:///', null);
+                    return;
+                }
+
+                // Regular file/folder - open with default app
+                const appInfo = Gio.AppInfo.get_default_for_type(
+                    this._fileInfo.get_content_type(),
+                    false
+                );
+                if (appInfo) {
+                    appInfo.launch([file], null);
+                } else {
+                    // Open with default handler
+                    Gio.app_info_launch_default_for_uri(file.get_uri(), null);
                 }
             } catch (e) {
                 log(`Error opening file: ${e}`);
@@ -1142,8 +1242,12 @@ const DesktopGrid = GObject.registerClass(
                     // Left click - deselect all
                     this._extension._deselectAll();
                     return Clutter.EVENT_STOP;
+                } else if (button === 3) {
+                    // Right click - show desktop menu
+                    const [x, y] = event.get_coords();
+                    this._showDesktopMenu(x, y);
+                    return Clutter.EVENT_STOP;
                 }
-                // TODO: Right-click context menu disabled for now - needs fixing
                 return Clutter.EVENT_PROPAGATE;
             });
         }
@@ -1151,28 +1255,22 @@ const DesktopGrid = GObject.registerClass(
         _showDesktopMenu(x, y) {
             this._closeDesktopMenu();
 
-            // Create menu
-            this._desktopMenu = new St.BoxLayout({
-                style_class: 'popup-menu-content',
-                vertical: true,
-                reactive: true,
-                style: 'padding: 6px 0; min-width: 200px;',
+            // Create a dummy actor at mouse position to anchor the menu
+            this._menuAnchor = new St.Widget({
+                x: x,
+                y: y,
+                width: 1,
+                height: 1,
+                reactive: false,
             });
+            Main.uiGroup.add_child(this._menuAnchor);
+
+            // Create popup menu anchored to dummy widget
+            this._desktopMenu = new PopupMenu.PopupMenu(this._menuAnchor, 0, St.Side.TOP);
 
             // Preferences item
-            const prefsBtn = new St.Button({
-                style_class: 'popup-menu-item',
-                reactive: true,
-                can_focus: true,
-                x_expand: true,
-            });
-            prefsBtn.set_child(new St.Label({
-                text: 'Preferencias de escritorio',
-                x_expand: true,
-                style: 'padding: 6px 12px;',
-            }));
-            prefsBtn.connect('clicked', () => {
-                this._closeDesktopMenu();
+            const prefsItem = new PopupMenu.PopupMenuItem('Preferencias de escritorio');
+            prefsItem.connect('activate', () => {
                 try {
                     Gio.Subprocess.new(
                         ['gnome-extensions', 'prefs', 'obision-extension-desk-grid@obision.com'],
@@ -1182,69 +1280,114 @@ const DesktopGrid = GObject.registerClass(
                     log(`[Obision] Error opening prefs: ${e}`);
                 }
             });
-            this._desktopMenu.add_child(prefsBtn);
+            this._desktopMenu.addMenuItem(prefsItem);
 
-            // Add to stage
-            global.stage.add_child(this._desktopMenu);
+            // Check if obision-extension-grid is installed
+            try {
+                const gridExtension = Main.extensionManager.lookup('obision-extension-grid@obision.com');
 
-            // Position with bounds checking
+                if (gridExtension) {
+                    // Add separator
+                    this._desktopMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+                    // Check current state when menu opens (state 1 = ENABLED)
+                    const isCurrentlyEnabled = gridExtension.state === 1;
+                    const menuText = isCurrentlyEnabled ? 'Disable One Win' : 'Enable One Win';
+                    const oneWinItem = new PopupMenu.PopupMenuItem(menuText);
+
+                    oneWinItem.connect('activate', () => {
+                        // Check state again at click time
+                        const currentState = gridExtension.state === 1;
+
+                        if (currentState) {
+                            // Extension is enabled: disable it
+                            try {
+                                Gio.Subprocess.new(
+                                    ['gnome-extensions', 'disable', 'obision-extension-grid@obision.com'],
+                                    Gio.SubprocessFlags.NONE
+                                );
+                            } catch (e) {
+                                log(`[Obision] Error disabling grid extension: ${e}`);
+                            }
+                        } else {
+                            // Extension is disabled: enable it
+                            try {
+                                Gio.Subprocess.new(
+                                    ['gnome-extensions', 'enable', 'obision-extension-grid@obision.com'],
+                                    Gio.SubprocessFlags.NONE
+                                );
+                            } catch (e) {
+                                log(`[Obision] Error enabling grid extension: ${e}`);
+                            }
+                        }
+                    });
+
+                    this._desktopMenu.addMenuItem(oneWinItem);
+                }
+            } catch (e) {
+                log(`[Obision] Error checking grid extension: ${e}\n${e.stack}`);
+            }
+
+            // Add menu to UI group (above windows)
+            Main.uiGroup.add_child(this._desktopMenu.actor);
+
+            // Position menu
             const monitor = Main.layoutManager.primaryMonitor;
-            let menuX = x;
-            let menuY = y;
+            const margin = 5;
+            const screenRight = monitor.x + monitor.width - margin;
+            const screenBottom = monitor.y + monitor.height - margin;
 
-            // Set initial position
-            this._desktopMenu.set_position(menuX, menuY);
+            // Open menu to get its size
+            this._desktopMenu.open();
 
-            // Adjust bounds after layout
-            GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-                if (!this._desktopMenu) return GLib.SOURCE_REMOVE;
-                const w = this._desktopMenu.width;
-                const h = this._desktopMenu.height;
-                if (menuX + w > monitor.x + monitor.width) menuX = monitor.x + monitor.width - w - 8;
-                if (menuY + h > monitor.y + monitor.height) menuY = monitor.y + monitor.height - h - 8;
-                this._desktopMenu.set_position(menuX, menuY);
-                return GLib.SOURCE_REMOVE;
-            });
+            const menuWidth = this._desktopMenu.actor.width;
+            const menuHeight = this._desktopMenu.actor.height;
 
-            // Listen for clicks - use simple bounding box check
-            this._stageClickId = global.stage.connect('event', (actor, ev) => {
-                if (ev.type() !== Clutter.EventType.BUTTON_PRESS) {
-                    return Clutter.EVENT_PROPAGATE;
+            let menuPosX = x;
+            let menuPosY = y;
+
+            // Adjust horizontal position if menu goes off right edge
+            if (menuPosX + menuWidth > screenRight) {
+                menuPosX = x - menuWidth;
+            }
+
+            // Adjust vertical position if menu goes off bottom edge
+            if (menuPosY + menuHeight > screenBottom) {
+                menuPosY = y - menuHeight;
+            }
+
+            this._desktopMenu.actor.set_position(menuPosX, menuPosY);
+
+            // Close menu when clicking outside
+            this._menuCaptureId = global.stage.connect('captured-event', (actor, event) => {
+                if (event.type() === Clutter.EventType.BUTTON_PRESS) {
+                    const [clickX, clickY] = event.get_coords();
+                    const [menuX, menuY] = this._desktopMenu.actor.get_transformed_position();
+                    const menuW = this._desktopMenu.actor.width;
+                    const menuH = this._desktopMenu.actor.height;
+
+                    if (clickX < menuX || clickX > menuX + menuW ||
+                        clickY < menuY || clickY > menuY + menuH) {
+                        this._closeDesktopMenu();
+                    }
                 }
-
-                if (!this._desktopMenu) {
-                    return Clutter.EVENT_PROPAGATE;
-                }
-
-                // Get click position
-                const [clickX, clickY] = ev.get_coords();
-
-                // Get menu's actual position and size directly from actor properties
-                const mx = this._desktopMenu.x;
-                const my = this._desktopMenu.y;
-                const mw = this._desktopMenu.width;
-                const mh = this._desktopMenu.height;
-
-                // Check if click is inside menu bounding box
-                if (clickX >= mx && clickX <= mx + mw && clickY >= my && clickY <= my + mh) {
-                    return Clutter.EVENT_PROPAGATE; // Inside menu, let it handle
-                }
-
-                // Click outside - close menu
-                this._closeDesktopMenu();
-                return Clutter.EVENT_STOP;
+                return Clutter.EVENT_PROPAGATE;
             });
         }
 
         _closeDesktopMenu() {
-            if (this._stageClickId) {
-                global.stage.disconnect(this._stageClickId);
-                this._stageClickId = null;
+            if (this._menuCaptureId) {
+                global.stage.disconnect(this._menuCaptureId);
+                this._menuCaptureId = null;
             }
             if (this._desktopMenu) {
-                global.stage.remove_child(this._desktopMenu);
+                this._desktopMenu.close();
                 this._desktopMenu.destroy();
                 this._desktopMenu = null;
+            }
+            if (this._menuAnchor) {
+                this._menuAnchor.destroy();
+                this._menuAnchor = null;
             }
         }
 
@@ -1300,7 +1443,7 @@ const DesktopGrid = GObject.registerClass(
         }
 
         destroy() {
-            this._closeContextMenu();
+            this._closeDesktopMenu();
             this.clearIcons();
             super.destroy();
         }
@@ -1361,6 +1504,9 @@ export default class ObisionExtensionDesk extends Extension {
                 this._buildCellGrid();
                 this._reloadIcons();
                 this._gridOverlay.refresh();
+            } else if (key === 'show-trash' || key === 'show-home') {
+                // Special icons visibility changed - reload all icons
+                this._reloadIcons();
             } else if (key.startsWith('grid-')) {
                 this._gridOverlay.refresh();
             }
@@ -2354,6 +2500,9 @@ export default class ObisionExtensionDesk extends Extension {
         }
 
         try {
+            // Add special icons first (Trash, Home)
+            this._addSpecialIcons();
+
             const enumerator = desktopDir.enumerate_children(
                 'standard::*',
                 Gio.FileQueryInfoFlags.NONE,
@@ -2464,6 +2613,139 @@ export default class ObisionExtensionDesk extends Extension {
     _deselectAll() {
         for (const icon of this._grid.getIcons()) {
             icon.deselect();
+        }
+    }
+
+    _addSpecialIcons() {
+        // Add Trash icon if enabled
+        if (this._settings.get_boolean('show-trash')) {
+            this._addTrashIcon();
+        }
+
+        // Add Home icon if enabled
+        if (this._settings.get_boolean('show-home')) {
+            this._addHomeIcon();
+        }
+    }
+
+    _addTrashIcon() {
+        try {
+            const trashFile = Gio.File.new_for_uri('trash:///');
+            const fileInfo = trashFile.query_info(
+                'standard::*',
+                Gio.FileQueryInfoFlags.NONE,
+                null
+            );
+
+            // Set special properties for Trash - use system translation
+            const trashName = fileInfo.get_display_name() || 'Trash';
+            fileInfo.set_display_name(trashName);
+            fileInfo.set_attribute_object('standard::file', trashFile);
+            fileInfo.set_attribute_boolean('special::is-trash', true);
+
+            const iconName = 'user-trash';
+            const name = '___TRASH___'; // Internal name
+
+            // Create icon with trash icon
+            const icon = new DesktopIcon(fileInfo, this, name);
+            const iconCellSize = icon._cellSize || { cols: 1, rows: 1 };
+
+            // Try to get saved position
+            let targetCol = 0;
+            let targetRow = 0;
+
+            if (this._iconPositions[name]) {
+                const saved = this._iconPositions[name];
+                if (saved.col !== undefined && saved.row !== undefined) {
+                    targetCol = saved.col;
+                    targetRow = saved.row;
+                } else if (saved.x !== undefined && saved.y !== undefined) {
+                    const cellWidth = this._getCellWidth();
+                    const cellHeight = this._getCellHeight();
+                    targetCol = Math.floor(saved.x / cellWidth);
+                    targetRow = Math.floor(saved.y / cellHeight);
+                }
+            }
+
+            // Find a free cell
+            let freeCell = null;
+            if (this.areCellsFree(targetCol, targetRow, iconCellSize)) {
+                freeCell = { col: targetCol, row: targetRow };
+            } else {
+                freeCell = this.findFreeCell(iconCellSize);
+            }
+
+            if (freeCell) {
+                const cell = this.getCell(freeCell.col, freeCell.row);
+                if (cell) {
+                    this._grid.addIcon(icon, cell.x, cell.y);
+                    this.placeIconInCell(icon, freeCell.col, freeCell.row);
+                }
+            } else {
+                this._grid.addIcon(icon, 0, 0);
+            }
+        } catch (e) {
+            log(`Error adding trash icon: ${e}`);
+        }
+    }
+
+    _addHomeIcon() {
+        try {
+            const homeFile = Gio.File.new_for_path(GLib.get_home_dir());
+            const fileInfo = homeFile.query_info(
+                'standard::*',
+                Gio.FileQueryInfoFlags.NONE,
+                null
+            );
+
+            // Set localized name for Home folder
+            // Use 'Carpeta personal' as it's the standard translation in Spanish
+            fileInfo.set_display_name('Carpeta personal');
+            fileInfo.set_attribute_object('standard::file', homeFile);
+            fileInfo.set_attribute_boolean('special::is-home', true);
+
+            const name = '___HOME___'; // Internal name
+
+            // Create icon
+            const icon = new DesktopIcon(fileInfo, this, name);
+            const iconCellSize = icon._cellSize || { cols: 1, rows: 1 };
+
+            // Try to get saved position
+            let targetCol = 0;
+            let targetRow = 0;
+
+            if (this._iconPositions[name]) {
+                const saved = this._iconPositions[name];
+                if (saved.col !== undefined && saved.row !== undefined) {
+                    targetCol = saved.col;
+                    targetRow = saved.row;
+                } else if (saved.x !== undefined && saved.y !== undefined) {
+                    const cellWidth = this._getCellWidth();
+                    const cellHeight = this._getCellHeight();
+                    targetCol = Math.floor(saved.x / cellWidth);
+                    targetRow = Math.floor(saved.y / cellHeight);
+                }
+            }
+
+            // Find a free cell
+            let freeCell = null;
+            if (this.areCellsFree(targetCol, targetRow, iconCellSize)) {
+                freeCell = { col: targetCol, row: targetRow };
+            } else {
+                freeCell = this.findFreeCell(iconCellSize);
+            }
+
+            if (freeCell) {
+                const cell = this.getCell(freeCell.col, freeCell.row);
+                if (cell) {
+                    this._grid.addIcon(icon, cell.x, cell.y);
+                    this.placeIconInCell(icon, freeCell.col, freeCell.row);
+                }
+            } else {
+                this._grid.addIcon(icon, 0, 0);
+            }
+        } catch (e) {
+            log(`Error adding home icon: ${e}`);
         }
     }
 }
