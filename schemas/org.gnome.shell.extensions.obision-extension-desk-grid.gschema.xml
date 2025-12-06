@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="org.gnome.shell.extensions.obision-extension-desk" path="/org/gnome/shell/extensions/obision-extension-desk/">
+  <schema id="org.gnome.shell.extensions.obision-extension-desk-grid" path="/org/gnome/shell/extensions/obision-extension-desk-grid/">
     
     <!-- Icon Settings -->
     <key name="icon-size" type="s">

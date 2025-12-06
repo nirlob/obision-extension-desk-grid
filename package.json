@@ -1,14 +1,14 @@
 {
-    "name": "obision-extension-desk",
+    "name": "obision-extension-desk-grid",
     "version": "1.0.0",
-    "description": "A GNOME Shell extension for desktop icons with multi-size support",
+    "description": "A GNOME Shell extension for desktop icons with multi-size grid support",
     "main": "extension.js",
     "scripts": {
         "build": "npm run compile-schemas && npm run pack",
         "compile-schemas": "glib-compile-schemas schemas/",
         "pack": "gnome-extensions pack --force --extra-source=schemas/ --extra-source=src/",
-        "install": "gnome-extensions install --force obision-extension-desk@obision.com.shell-extension.zip",
-        "enable": "gnome-extensions enable obision-extension-desk@obision.com",
+        "install": "gnome-extensions install --force obision-extension-desk-grid@obision.com.shell-extension.zip",
+        "enable": "gnome-extensions enable obision-extension-desk-grid@obision.com",
         "deploy": "npm run build && npm run install && echo '\n✓ Extension installed! Restart GNOME Shell:' && echo '  X11: Alt+F2 → type r → Enter' && echo '  Wayland: Log out and back in' && echo '\nThen run: npm run enable'",
         "reload": "./reload.sh",
         "update": "npm run build && npm run install && npm run reload",
@@ -29,12 +29,12 @@
     "author": "Jose Francisco Gonzalez <jfgs1609@gmail.com>",
     "repository": {
         "type": "git",
-        "url": "https://github.com/nirlob/obision-extension-desk.git"
+        "url": "https://github.com/nirlob/obision-extension-desk-grid.git"
     },
     "bugs": {
-        "url": "https://github.com/nirlob/obision-extension-desk/issues"
+        "url": "https://github.com/nirlob/obision-extension-desk-grid/issues"
     },
-    "homepage": "https://github.com/nirlob/obision-extension-desk#readme",
+    "homepage": "https://github.com/nirlob/obision-extension-desk-grid#readme",
     "license": "GPL-3.0",
     "devDependencies": {
         "eslint": "^8.57.1",

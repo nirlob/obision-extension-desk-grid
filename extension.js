@@ -1175,7 +1175,7 @@ const DesktopGrid = GObject.registerClass(
                 this._closeDesktopMenu();
                 try {
                     Gio.Subprocess.new(
-                        ['gnome-extensions', 'prefs', 'obision-extension-desk@obision.com'],
+                        ['gnome-extensions', 'prefs', 'obision-extension-desk-grid@obision.com'],
                         Gio.SubprocessFlags.NONE
                     );
                 } catch (e) {
