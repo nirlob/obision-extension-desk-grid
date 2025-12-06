@@ -2,8 +2,19 @@
 node_modules/
 
 # Build artifacts
+builddir/
 *.zip
 schemas/gschemas.compiled
+
+# Debian packaging temporary files
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files
+debian/*.substvars
+debian/*.debhelper
+debian/*.log
+debian/tmp/
+debian/gnome-shell-extension-obision-desk-grid/
 
 # IDE
 .idea/
