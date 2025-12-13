@@ -1743,11 +1743,7 @@ export default class ObisionExtensionDesk extends Extension {
 
         // Connect to settings changes
         this._settingsChangedId = this._settings.connect('changed', (settings, key) => {
-            if (key === 'icon-size') {
-                this._buildCellGrid();
-                this._reloadIcons();
-                this._gridOverlay.refresh();
-            } else if (key === 'grid-columns' || key === 'grid-rows') {
+            if (key === 'grid-columns' || key === 'grid-rows') {
                 // Grid dimensions changed - rebuild cell grid
                 this._buildCellGrid();
                 this._reloadIcons();
@@ -2303,8 +2299,7 @@ export default class ObisionExtensionDesk extends Extension {
     }
 
     _getDefaultCellSize() {
-        const sizeKey = this._settings.get_string('icon-size');
-        return ICON_CELL_SIZES[sizeKey] || { cols: 1, rows: 1 };
+        return { cols: 1, rows: 1 };
     }
 
     // Cell-based size methods

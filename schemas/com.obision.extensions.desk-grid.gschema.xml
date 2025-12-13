@@ -2,19 +2,6 @@
 <schemalist>
   <schema id="com.obision.extensions.desk-grid" path="/com/obision/extensions/desk-grid/">
     
-    <!-- Icon Settings -->
-    <key name="icon-size" type="s">
-      <default>"1x1"</default>
-      <summary>Default Icon Size</summary>
-      <description>Default size of desktop icons in grid cells: 1x1, 2x2, 3x3, 4x4</description>
-    </key>
-
-    <key name="show-hidden" type="b">
-      <default>false</default>
-      <summary>Show Hidden Files</summary>
-      <description>Display hidden files and folders (starting with a dot)</description>
-    </key>
-
     <!-- Grid Settings -->
     <key name="grid-columns" type="i">
       <default>12</default>
@@ -66,13 +53,6 @@
       <range min="4" max="48"/>
       <summary>Grid Spacing</summary>
       <description>Space between icons in pixels</description>
-    </key>
-
-    <!-- Icon Background (tile style) -->
-    <key name="icon-background-auto" type="b">
-      <default>false</default>
-      <summary>Auto Icon Background</summary>
-      <description>Use dominant color from icon as background when icon is smaller than cell</description>
     </key>
 
     <key name="sort-by" type="s">

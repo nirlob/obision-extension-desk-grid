@@ -103,53 +103,6 @@ export default class ObisionExtensionDeskPreferences extends ExtensionPreference
         });
         window.add(page);
 
-        // Icon Settings Group
-        const iconGroup = new Adw.PreferencesGroup({
-            title: 'Icon Settings',
-            description: 'Configure desktop icon appearance',
-        });
-        page.add(iconGroup);
-
-        // Default Icon Size (in cells)
-        const iconSizeRow = new Adw.ComboRow({
-            title: 'Default Icon Size',
-            subtitle: 'Default size for new icons (in grid cells)',
-        });
-        const sizeModel = new Gtk.StringList();
-        sizeModel.append('1×1 (1 cell)');
-        sizeModel.append('2×2 (4 cells)');
-        sizeModel.append('3×3 (9 cells)');
-        sizeModel.append('4×4 (16 cells)');
-        iconSizeRow.set_model(sizeModel);
-
-        // Map settings value to index
-        const sizeMap = { '1x1': 0, '2x2': 1, '3x3': 2, '4x4': 3 };
-        const reverseSizeMap = ['1x1', '2x2', '3x3', '4x4'];
-        const currentSize = settings.get_string('icon-size');
-        iconSizeRow.set_selected(sizeMap[currentSize] ?? 0);
-
-        iconSizeRow.connect('notify::selected', () => {
-            const selected = iconSizeRow.get_selected();
-            settings.set_string('icon-size', reverseSizeMap[selected]);
-        });
-        iconGroup.add(iconSizeRow);
-
-        // Show Hidden Files
-        const showHiddenRow = new Adw.SwitchRow({
-            title: 'Show Hidden Files',
-            subtitle: 'Display files and folders starting with a dot',
-        });
-        iconGroup.add(showHiddenRow);
-        settings.bind('show-hidden', showHiddenRow, 'active', Gio.SettingsBindFlags.DEFAULT);
-
-        // Auto Icon Background (tile style)
-        const iconBackgroundRow = new Adw.SwitchRow({
-            title: 'Auto Icon Background',
-            subtitle: 'Use dominant color from icon as tile background',
-        });
-        iconGroup.add(iconBackgroundRow);
-        settings.bind('icon-background-auto', iconBackgroundRow, 'active', Gio.SettingsBindFlags.DEFAULT);
-
         // Grid Settings Group
         const gridGroup = new Adw.PreferencesGroup({
             title: 'Grid Settings',
