@@ -1701,6 +1701,7 @@ export default class ObisionExtensionDesk extends Extension {
         this._settings = this.getSettings();
         this._fileMonitor = null;
         this._iconPositions = {}; // Cache for icon positions
+        this._initialLoad = true; // Flag to prevent overwriting preset positions on first load
 
         // Initialize cell grid (bidimensional array)
         this._cells = null;
@@ -2776,14 +2777,18 @@ export default class ObisionExtensionDesk extends Extension {
      * Reload all icons (clear and re-add)
      */
     _reloadIcons() {
-        // Save current icon positions before clearing
-        const cellWidth = this._getCellWidth();
-        const cellHeight = this._getCellHeight();
-        for (const icon of this._grid.getIcons()) {
-            // Convert pixel position to col/row
-            const col = Math.round(icon.x / cellWidth);
-            const row = Math.round(icon.y / cellHeight);
-            this._saveIconPosition(icon._fileName, col, row);
+        // Only save positions if this is not the initial load
+        // (prevents overwriting preset dconf values on first startup)
+        if (!this._initialLoad) {
+            // Save current icon positions before clearing
+            const cellWidth = this._getCellWidth();
+            const cellHeight = this._getCellHeight();
+            for (const icon of this._grid.getIcons()) {
+                // Convert pixel position to col/row
+                const col = Math.round(icon.x / cellWidth);
+                const row = Math.round(icon.y / cellHeight);
+                this._saveIconPosition(icon._fileName, col, row);
+            }
         }
 
         // Clear icons and cell grid
@@ -2792,6 +2797,9 @@ export default class ObisionExtensionDesk extends Extension {
 
         // Reload from desktop
         this._loadDesktopFiles();
+
+        // Mark that initial load is complete
+        this._initialLoad = false;
     }
 
     _loadDesktopFiles() {
