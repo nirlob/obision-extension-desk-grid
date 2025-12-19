@@ -1,5 +1,5 @@
 {
-    "name": "obision-extension-desk-grid",
+    "name": "obision-ext-desk-grid",
     "version": "0.2.0",
     "description": "A GNOME Shell extension for desktop icons with multi-size grid support",
     "main": "extension.js",
@@ -7,14 +7,14 @@
         "build": "npm run compile-schemas && npm run pack",
         "compile-schemas": "glib-compile-schemas schemas/",
         "pack": "mkdir -p builddir && gnome-extensions pack --force --extra-source=schemas/ --out-dir=builddir",
-        "install": "gnome-extensions install --force builddir/obision-extension-desk-grid@obision.com.shell-extension.zip",
-        "enable": "gnome-extensions enable obision-extension-desk-grid@obision.com",
+        "install": "gnome-extensions install --force builddir/obision-ext-desk-grid@obision.com.shell-extension.zip",
+        "enable": "gnome-extensions enable obision-ext-desk-grid@obision.com",
         "deploy": "npm run build && npm run install && echo '\n✓ Extension installed! Restart GNOME Shell:' && echo '  X11: Alt+F2 → type r → Enter' && echo '  Wayland: Log out and back in' && echo '\nThen run: npm run enable'",
         "reload": "./scripts/reload.sh",
         "update": "npm run build && npm run install && npm run reload",
-        "deb-build": "dpkg-buildpackage -us -uc -b && mkdir -p builddir && mv ../gnome-shell-extension-obision-desk-grid_*.deb builddir/obision-extension-desk-grid.deb && mv ../gnome-shell-extension-obision-desk-grid_*.buildinfo builddir/ 2>/dev/null || true && mv ../gnome-shell-extension-obision-desk-grid_*.changes builddir/ 2>/dev/null || true",
-        "deb-install": "sudo dpkg -i builddir/obision-extension-desk-grid.deb && sudo apt-get install -f",
-        "deb-uninstall": "sudo apt-get remove gnome-shell-extension-obision-desk-grid -y",
+        "deb-build": "dpkg-buildpackage -us -uc -b && mkdir -p builddir && mv ../gnome-shell-extension-obision-ext-desk-grid_*.deb builddir/obision-ext-desk-grid.deb && mv ../gnome-shell-extension-obision-ext-desk-grid_*.buildinfo builddir/ 2>/dev/null || true && mv ../gnome-shell-extension-obision-ext-desk-grid_*.changes builddir/ 2>/dev/null || true",
+        "deb-install": "sudo dpkg -i builddir/obision-ext-desk-grid.deb && sudo apt-get install -f",
+        "deb-uninstall": "sudo apt-get remove gnome-shell-extension-obision-ext-desk-grid -y",
         "deb-clean": "dh_clean || true",
         "release": "./scripts/release.sh",
         "logs": "journalctl -f -o cat /usr/bin/gnome-shell",
@@ -34,12 +34,12 @@
     "author": "Jose Francisco Gonzalez <jfgs1609@gmail.com>",
     "repository": {
         "type": "git",
-        "url": "https://github.com/nirlob/obision-extension-desk.git"
+        "url": "https://github.com/nirlob/obision-ext-desk-grid.git"
     },
     "bugs": {
-        "url": "https://github.com/nirlob/obision-extension-desk/issues"
+        "url": "https://github.com/nirlob/obision-ext-desk-grid/issues"
     },
-    "homepage": "https://github.com/nirlob/obision-extension-desk#readme",
+    "homepage": "https://github.com/nirlob/obision-ext-desk-grid#readme",
     "license": "GPL-3.0",
     "devDependencies": {
         "eslint": "^8.57.1",

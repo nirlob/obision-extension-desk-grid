@@ -10,7 +10,7 @@ GNOME Shell extension for desktop icons with grid-based layout. Icons can span m
 
 ### Core Components (all in `extension.js`)
 
-1. **`ObisionExtensionDesk`** (Extension class)
+1. **`ObisionExtDeskGrid`** (Extension class)
    - Manages lifecycle (`enable()`/`disable()`)
    - Maintains `_cells` array: bidimensional grid tracking which cells are occupied by which icons
    - Handles file monitoring via `Gio.FileMonitor` on Desktop directory
@@ -129,6 +129,16 @@ npm run format     # Prettier auto-format
 - Use `log('message')` in extension code (NOT `console.log`). Output appears in journalctl.
 - Looking Glass can inspect live objects: `Main.layoutManager`, `global.get_stage()`, etc.
 - Check for errors after deploy: Look for red errors in logs before restarting shell
+
+**Quick reload (X11 only):**
+`npm run update` combines build + install + automatic shell restart via `scripts/reload.sh`:
+```bash
+# What update does:
+gnome-extensions disable obision-ext-desk-grid@obision.com
+sleep 0.5
+gnome-extensions enable obision-ext-desk-grid@obision.com
+# Note: This doesn't fully restart shell, only toggles extension (enable/disable cycle)
+```
 
 ## Critical Constraints
 
@@ -270,30 +280,48 @@ This extension is part of the **Obision** project family. Related extensions sha
 
 | Extension | Purpose | UUID |
 |-----------|---------|------|
-| `obision-extension-dash` | Bottom dock/panel with app launchers | `obision-extension-dash@obision.com` |
-| `obision-extension-one-win` | Stage Manager-style window management (One Win) | `obision-extension-one-win@obision.com` |
-| `obision-extension-desk-grid` | Desktop icons (this extension) | `obision-extension-desk-grid@obision.com` |
+| `obision-ext-dash` | Bottom dock/panel with app launchers | `obision-ext-dash@obision.com` |
+| `obision-ext-one-win` | Stage Manager-style window management (One Win) | `obision-ext-one-win@obision.com` |
+| `obision-ext-desk-grid` | Desktop icons (this extension) | `obision-ext-desk-grid@obision.com` |
 
 ### Integration Patterns
 
 **Detecting Other Obision Extensions:**
 ```javascript
 // Check if another Obision extension is enabled
-const oneWinExtension = Main.extensionManager.lookup('obision-extension-one-win@obision.com');
+const oneWinExtension = Main.extensionManager.lookup('obision-ext-one-win@obision.com');
 if (oneWinExtension?.state === 1) { // state 1 = ENABLED
     // One Win extension is enabled
 }
 
-const dashExtension = Main.extensionManager.lookup('obision-extension-dash@obision.com');
+const dashExtension = Main.extensionManager.lookup('obision-ext-dash@obision.com');
 if (dashExtension?.state === 1) {
     // Adjust layout to account for dash panel
 }
 ```
 
+**Active Dash Integration:**
+This extension includes active integration with `obision-ext-dash`:
+```javascript
+// In _setupObisionDashIntegration() - automatically detects dash settings
+const DASH_SCHEMA = 'com.obision.extensions.dash';
+this._dashSettings = new Gio.Settings({ settings_schema: schema });
+
+// Listens to dash changes that affect work area
+this._dashSettings.connect('changed', (settings, key) => {
+    if (['dash-size', 'dash-position', 'auto-hide', 'panel-padding'].includes(key)) {
+        // Triggers grid position update with 300ms delay
+        this._onWorkAreaChanged();
+    }
+});
+```
+
 **Coordinating Work Areas:**
-- `obision-extension-dash` reserves space at screen edges (top/bottom)
-- `obision-extension-desk` should use `Main.layoutManager.getWorkAreaForMonitor()` to respect panel space
+- `obision-ext-dash` reserves space at screen edges (top/bottom)
+- `obision-ext-desk-grid` uses `Main.layoutManager.getWorkAreaForMonitor()` to respect panel space
+- Dash integration is auto-detected - if dash is installed, desk automatically responds to its settings changes
 - Both use `Main.layoutManager._trackedActors` to detect chrome elements
+- Work area changes are debounced (100ms) to prevent excessive reloads
 
 **Shared Design Language:**
 - GNOME accent colors: read from `org.gnome.desktop.interface` → `accent-color`

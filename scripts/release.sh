@@ -44,7 +44,7 @@ AUTHOR_NAME="Jose Francisco Gonzalez"
 AUTHOR_EMAIL="jfgs1609@gmail.com"
 
 cat > debian/changelog.tmp << EOF
-obision-extension-desk-grid ($NEW_VERSION-1) unstable; urgency=medium
+obision-ext-desk-grid ($NEW_VERSION-1) unstable; urgency=medium
 
   * Release version $NEW_VERSION
 
@@ -77,4 +77,4 @@ echo "  1. Build the extension"
 echo "  2. Create a GitHub release"
 echo "  3. Attach the extension package to the release"
 echo ""
-echo "Check progress at: https://github.com/nirlob/obision-extension-desk-grid/actions"
+echo "Check progress at: https://github.com/nirlob/obision-ext-desk-grid/actions"

@@ -26,11 +26,11 @@ jobs:
       run: |
         dpkg-buildpackage -us -uc -b
         mkdir -p builddir
-        mv ../gnome-shell-extension-obision-desk-grid_*.deb builddir/obision-extension-desk-grid.deb
+        mv ../gnome-shell-extension-obision-ext-desk-grid_*.deb builddir/obision-ext-desk-grid.deb
         
     - name: Verify DEB exists
       run: |
-        if [ ! -f builddir/obision-extension-desk-grid.deb ]; then
+        if [ ! -f builddir/obision-ext-desk-grid.deb ]; then
           echo "ERROR: DEB file not found!"
           echo "Contents of builddir:"
           ls -la builddir/ || echo "builddir not found"
@@ -39,12 +39,12 @@ jobs:
           exit 1
         fi
         echo "✅ DEB file found:"
-        ls -lh builddir/obision-extension-desk-grid.deb
+        ls -lh builddir/obision-ext-desk-grid.deb
       
     - name: Create Release and Upload DEB
       uses: softprops/action-gh-release@v1
       with:
-        files: builddir/obision-extension-desk-grid.deb
+        files: builddir/obision-ext-desk-grid.deb
         generate_release_notes: true
         body: |
           ## Installation
@@ -52,7 +52,7 @@ jobs:
           Download the `.deb` file and install it:
           
           ```bash
-          sudo dpkg -i obision-extension-desk-grid.deb
+          sudo dpkg -i obision-ext-desk-grid.deb
           sudo apt-get install -f
           ```
           
@@ -62,7 +62,7 @@ jobs:
           
           Enable the extension:
           ```bash
-          gnome-extensions enable obision-extension-desk-grid@obision.com
+          gnome-extensions enable obision-ext-desk-grid@obision.com
           ```
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

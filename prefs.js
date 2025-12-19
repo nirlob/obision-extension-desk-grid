@@ -89,7 +89,7 @@ function createColorPicker(settings, settingKey) {
     return button;
 }
 
-export default class ObisionExtensionDeskPreferences extends ExtensionPreferences {
+export default class ObisionExtDeskGridPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
 

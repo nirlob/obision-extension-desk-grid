@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="com.obision.extensions.desk-grid" path="/com/obision/extensions/desk-grid/">
+  <schema id="com.obision.ext.desk-grid" path="/com/obision/ext/desk-grid/">
     
     <!-- Grid Settings -->
     <key name="grid-columns" type="i">

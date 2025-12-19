@@ -9,7 +9,7 @@ override_dh_auto_configure:
 
 override_dh_auto_build:
 	glib-compile-schemas schemas/
-	zip -r obision-extension-desk-grid@obision.com.shell-extension.zip \
+	zip -r obision-ext-desk-grid@obision.com.shell-extension.zip \
 		extension.js \
 		metadata.json \
 		prefs.js \
@@ -17,8 +17,8 @@ override_dh_auto_build:
 		schemas/
 
 override_dh_auto_install:
-	mkdir -p debian/gnome-shell-extension-obision-desk-grid/usr/share/gnome-shell/extensions/obision-extension-desk-grid@obision.com
-	unzip -q obision-extension-desk-grid@obision.com.shell-extension.zip -d debian/gnome-shell-extension-obision-desk-grid/usr/share/gnome-shell/extensions/obision-extension-desk-grid@obision.com/
+	mkdir -p debian/gnome-shell-extension-obision-ext-desk-grid/usr/share/gnome-shell/extensions/obision-ext-desk-grid@obision.com
+	unzip -q obision-ext-desk-grid@obision.com.shell-extension.zip -d debian/gnome-shell-extension-obision-ext-desk-grid/usr/share/gnome-shell/extensions/obision-ext-desk-grid@obision.com/
 
 override_dh_auto_clean:
 	rm -f *.zip

@@ -1337,9 +1337,9 @@ const DesktopGrid = GObject.registerClass(
 
             this._desktopMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-            // Check if obision-extension-one-win is installed
+            // Check if obision-ext-one-win is installed
             try {
-                const oneWinExtension = Main.extensionManager.lookup('obision-extension-one-win@obision.com');
+                const oneWinExtension = Main.extensionManager.lookup('obision-ext-one-win@obision.com');
 
                 log(`[Obision] One Win extension lookup result: ${oneWinExtension ? 'found' : 'not found'}`);
 
@@ -1355,7 +1355,7 @@ const DesktopGrid = GObject.registerClass(
                             // Enable the extension
                             try {
                                 Gio.Subprocess.new(
-                                    ['gnome-extensions', 'enable', 'obision-extension-one-win@obision.com'],
+                                    ['gnome-extensions', 'enable', 'obision-ext-one-win@obision.com'],
                                     Gio.SubprocessFlags.NONE
                                 );
                             } catch (e) {
@@ -1365,7 +1365,7 @@ const DesktopGrid = GObject.registerClass(
                             // Disable the extension
                             try {
                                 Gio.Subprocess.new(
-                                    ['gnome-extensions', 'disable', 'obision-extension-one-win@obision.com'],
+                                    ['gnome-extensions', 'disable', 'obision-ext-one-win@obision.com'],
                                     Gio.SubprocessFlags.NONE
                                 );
                             } catch (e) {
@@ -1394,7 +1394,7 @@ const DesktopGrid = GObject.registerClass(
             prefsItem.connect('activate', () => {
                 try {
                     Gio.Subprocess.new(
-                        ['gnome-extensions', 'prefs', 'obision-extension-desk-grid@obision.com'],
+                        ['gnome-extensions', 'prefs', 'obision-ext-desk-grid@obision.com'],
                         Gio.SubprocessFlags.NONE
                     );
                 } catch (e) {
@@ -1694,7 +1694,7 @@ const DesktopGrid = GObject.registerClass(
 /**
  * Main extension class
  */
-export default class ObisionExtensionDesk extends Extension {
+export default class ObisionExtDeskGrid extends Extension {
     enable() {
         log('Obision Desk enabling...');
 
@@ -1920,7 +1920,7 @@ export default class ObisionExtensionDesk extends Extension {
     }
 
     /**
-     * Setup integration with obision-extension-dash
+     * Setup integration with obision-ext-dash
      * Listen to its settings for immediate grid updates when dash changes
      */
     _setupObisionDashIntegration() {
@@ -1947,7 +1947,7 @@ export default class ObisionExtensionDesk extends Extension {
                     }
                 });
 
-                log('[Obision Desk] Connected to obision-extension-dash settings');
+                log('[Obision Desk] Connected to obision-ext-dash settings');
             }
         } catch (e) {
             // obision-dash not installed or schema not available - that's fine

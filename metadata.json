@@ -1,12 +1,12 @@
 {
   "name": "Obision Desk Grid",
   "description": "A GNOME Shell extension for desktop icons with multi-size grid support",
-  "uuid": "obision-extension-desk-grid@obision.com",
+  "uuid": "obision-ext-desk-grid@obision.com",
   "shell-version": [
     "48",
     "49"
   ],
   "version": 2,
-  "url": "https://github.com/nirlob/obision-extension-desk-grid",
-  "settings-schema": "com.obision.extensions.desk-grid"
+  "url": "https://github.com/nirlob/obision-ext-desk-grid",
+  "settings-schema": "com.obision.ext.desk-grid"
 }

@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: obision-extension-desk-grid
+Upstream-Name: obision-ext-desk-grid
 Upstream-Contact: Jose Francisco Gonzalez <jfgs1609@gmail.com>
-Source: https://github.com/nirlob/obision-extension-desk-grid
+Source: https://github.com/nirlob/obision-ext-desk-grid
 
 Files: *
 Copyright: 2025 Jose Francisco Gonzalez <jfgs1609@gmail.com>

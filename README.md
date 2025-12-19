@@ -15,12 +15,12 @@ A GNOME Shell extension that provides desktop icons functionality with support f
 
 ### From Release (Debian/Ubuntu)
 
-Download the latest `.deb` package from [Releases](https://github.com/nirlob/obision-extension-desk/releases) and install:
+Download the latest `.deb` package from [Releases](https://github.com/nirlob/obision-ext-desk-grid/releases) and install:
 
 ```bash
-sudo dpkg -i obision-extension-desk-grid.deb
+sudo dpkg -i obision-ext-desk-grid.deb
 sudo apt-get install -f
-gnome-extensions enable obision-extension-desk-grid@obision.com
+gnome-extensions enable obision-ext-desk-grid@obision.com
 ```
 
 Then restart GNOME Shell:
@@ -31,8 +31,8 @@ Then restart GNOME Shell:
 
 ```bash
 # Clone the repository
-git clone https://github.com/nirlob/obision-extension-desk.git
-cd obision-extension-desk
+git clone https://github.com/nirlob/obision-ext-desk-grid.git
+cd obision-ext-desk-grid
 
 # Install dependencies
 npm install
@@ -65,13 +65,13 @@ npm run enable
 ### Project Structure
 
 ```
-obision-extension-desk/
+obision-ext-desk-grid/
 ├── extension.js      # Main extension code
 ├── prefs.js          # Preferences dialog
 ├── stylesheet.css    # CSS styles
 ├── metadata.json     # Extension metadata
 ├── schemas/          # GSettings schemas
-│   └── com.obision.extensions.desk-grid.gschema.xml
+│   └── com.obision.ext.desk-grid.gschema.xml
 ├── scripts/          # Build and release scripts
 │   └── release.sh    # Automated release script
 └── package.json      # npm scripts and dependencies
@@ -97,7 +97,7 @@ This will:
 
 Access settings through GNOME Extensions app or run:
 ```bash
-gnome-extensions prefs obision-extension-desk-grid@obision.com
+gnome-extensions prefs obision-ext-desk-grid@obision.com
 ```
 
 ### Available Settings
@@ -126,6 +126,6 @@ GPL-3.0
 
 ## Links
 
-- [Repository](https://github.com/nirlob/obision-extension-desk)
-- [Issues](https://github.com/nirlob/obision-extension-desk/issues)
-- [Releases](https://github.com/nirlob/obision-extension-desk/releases)
+- [Repository](https://github.com/nirlob/obision-ext-desk-grid)
+- [Issues](https://github.com/nirlob/obision-ext-desk-grid/issues)
+- [Releases](https://github.com/nirlob/obision-ext-desk-grid/releases)

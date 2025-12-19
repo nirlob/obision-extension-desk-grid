@@ -1,14 +1,14 @@
-Source: obision-extension-desk-grid
+Source: obision-ext-desk-grid
 Section: gnome
 Priority: optional
 Maintainer: Jose Francisco Gonzalez <jfgs1609@gmail.com>
 Build-Depends: debhelper-compat (= 13)
 Standards-Version: 4.6.0
-Homepage: https://github.com/nirlob/obision-extension-desk-grid
-Vcs-Git: https://github.com/nirlob/obision-extension-desk-grid.git
-Vcs-Browser: https://github.com/nirlob/obision-extension-desk-grid
+Homepage: https://github.com/nirlob/obision-ext-desk-grid
+Vcs-Git: https://github.com/nirlob/obision-ext-desk-grid.git
+Vcs-Browser: https://github.com/nirlob/obision-ext-desk-grid
 
-Package: gnome-shell-extension-obision-desk-grid
+Package: gnome-shell-extension-obision-ext-desk-grid
 Architecture: all
 Depends: ${misc:Depends},
          gnome-shell (>= 45)
